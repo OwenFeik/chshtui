@@ -1,4 +1,4 @@
-use crossterm::event::{Event, KeyCode, KeyEventKind};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     prelude::*,
     widgets::{Block, Paragraph},
@@ -98,24 +98,34 @@ impl Default for Stats {
     }
 }
 
-#[derive(Default)]
-struct App {
-    should_exit: bool,
-    stats: Stats,
+struct RollScene {
+    input: String,
 }
 
-impl App {
-    fn run(
-        &mut self,
-        term: &mut ratatui::DefaultTerminal,
-    ) -> std::io::Result<()> {
-        while !self.should_exit {
-            term.draw(|frame| self.draw(frame))?;
-            self.handle_events()?;
+impl RollScene {
+    fn new() -> Self {
+        Self {
+            input: String::new(),
         }
-        Ok(())
     }
+}
 
+impl Scene for RollScene {
+    fn draw(&self, frame: &mut Frame) {
+        let border = Block::bordered()
+            .title_alignment(Alignment::Center)
+            .title("Roll");
+        let input = Paragraph::new(self.input.as_str())
+            .block(Block::bordered().title("Input"));
+        frame.render_widget(input, frame.area());
+    }
+}
+
+#[derive(Default)]
+struct SheetScene {
+    stats: Stats,
+}
+impl Scene for SheetScene {
     fn draw(&self, frame: &mut Frame) {
         let layout = Layout::default()
             .direction(Direction::Horizontal)
@@ -124,31 +134,91 @@ impl App {
         self.stats.render(layout[0], frame);
         frame.render_widget(self, layout[1]);
     }
-
-    fn handle_events(&mut self) -> std::io::Result<()> {
-        // N.B. blocks until an event occurs.
-        match crossterm::event::read()? {
-            Event::Key(evt)
-                if evt.kind == KeyEventKind::Press
-                    && evt.code == KeyCode::Char('q') =>
-            {
-                self.should_exit = true;
-            }
-            _ => (),
-        }
-        Ok(())
-    }
 }
 
-impl ratatui::widgets::Widget for &App {
+impl Widget for &SheetScene {
     fn render(self, area: Rect, buf: &mut Buffer) {
         Block::bordered().title("Hello World").render(area, buf);
     }
 }
 
+enum HandleResult {
+    Consume,
+    Default,
+}
+
+trait Scene {
+    fn draw(&self, frame: &mut Frame);
+
+    fn handle(&self, evt: Event) -> HandleResult {
+        HandleResult::Default
+    }
+}
+
+struct App {
+    scenes: Vec<Box<dyn Scene>>,
+}
+
+impl App {
+    fn new() -> Self {
+        Self {
+            scenes: vec![Box::new(SheetScene::default())],
+        }
+    }
+
+    fn run(
+        &mut self,
+        term: &mut ratatui::DefaultTerminal,
+    ) -> std::io::Result<()> {
+        while !self.scenes.is_empty() {
+            term.draw(|frame| self.draw(frame))?;
+            self.handle_events()?;
+        }
+        Ok(())
+    }
+
+    fn draw(&self, frame: &mut Frame) {
+        if let Some(scene) = self.scenes.last() {
+            scene.draw(frame);
+        }
+    }
+
+    fn handle_events(&mut self) -> std::io::Result<()> {
+        // N.B. blocks until an event occurs.
+        let event = crossterm::event::read()?;
+        let outcome = self
+            .scenes
+            .last()
+            .map(|scene| scene.handle(event.clone()))
+            .unwrap_or(HandleResult::Consume);
+
+        match outcome {
+            HandleResult::Consume => {}
+            HandleResult::Default => {
+                if let Event::Key(evt) = event
+                    && evt.kind == KeyEventKind::Press
+                {
+                    self.handle_key_press(evt.code);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_key_press(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Char('q') => {
+                self.scenes.pop();
+            }
+            KeyCode::Char('r') => self.scenes.push(Box::new(RollScene::new())),
+            _ => (),
+        }
+    }
+}
+
 fn main() -> std::io::Result<()> {
     let mut term = ratatui::init();
-    let result = App::default().run(&mut term);
+    let result = App::new().run(&mut term);
     ratatui::restore();
     result
 }
