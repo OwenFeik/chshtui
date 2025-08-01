@@ -1,8 +1,9 @@
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
+    crossterm::event::{Event, KeyCode, KeyEventKind},
     prelude::*,
     widgets::{Block, Paragraph},
 };
+use tui_input::{Input, backend::crossterm::EventHandler};
 
 struct Stat {
     name: String,
@@ -99,13 +100,15 @@ impl Default for Stats {
 }
 
 struct RollScene {
-    input: String,
+    input: Input,
+    editing_input: bool,
 }
 
 impl RollScene {
     fn new() -> Self {
         Self {
-            input: String::new(),
+            input: Input::new(String::new()),
+            editing_input: true,
         }
     }
 }
@@ -115,9 +118,30 @@ impl Scene for RollScene {
         let border = Block::bordered()
             .title_alignment(Alignment::Center)
             .title("Roll");
-        let input = Paragraph::new(self.input.as_str())
+        let input = Paragraph::new(self.input.value())
             .block(Block::bordered().title("Input"));
         frame.render_widget(input, frame.area());
+    }
+
+    fn handle(&mut self, event: Event) -> HandleResult {
+        match event {
+            Event::Key(evt) => match evt.code {
+                KeyCode::Esc if self.editing_input => {
+                    self.editing_input = false;
+                    HandleResult::Consume
+                }
+                KeyCode::Enter if self.editing_input => {
+                    self.input.value_and_reset();
+                    HandleResult::Consume
+                }
+                _ if self.editing_input => {
+                    self.input.handle_event(&event);
+                    HandleResult::Consume
+                }
+                _ => HandleResult::Default,
+            },
+            _ => HandleResult::Default,
+        }
     }
 }
 
@@ -150,7 +174,7 @@ enum HandleResult {
 trait Scene {
     fn draw(&self, frame: &mut Frame);
 
-    fn handle(&self, evt: Event) -> HandleResult {
+    fn handle(&mut self, event: Event) -> HandleResult {
         HandleResult::Default
     }
 }
