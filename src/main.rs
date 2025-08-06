@@ -1,260 +1,11 @@
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEventKind},
     prelude::*,
-    widgets::{Block, Paragraph},
+    widgets::{Block, Clear, Paragraph},
 };
 use tui_input::{Input, backend::crossterm::EventHandler};
 
-enum RollSuff {
-    None,
-    Advantage,
-    Disadvantage,
-    Keep(u32),
-}
-
-enum RollOp {
-    Plus,
-    Minus,
-    Times,
-    Divide,
-}
-
-impl RollOp {
-    fn from(c: char) -> Option<RollOp> {
-        match c {
-            '+' => Some(RollOp::Plus),
-            '-' => Some(RollOp::Minus),
-            '*' | 'x' => Some(RollOp::Times),
-            '/' => Some(RollOp::Divide),
-            _ => None,
-        }
-    }
-
-    fn format(&self) -> &'static str {
-        match self {
-            Self::Plus => "+",
-            Self::Minus => "-",
-            Self::Times => "*",
-            Self::Divide => "/",
-        }
-    }
-}
-
-struct RollMod {
-    op: RollOp,
-    amount: f64,
-}
-
-impl RollMod {
-    fn apply(&self, to: f64) -> f64 {
-        match self.op {
-            RollOp::Plus => to + self.amount,
-            RollOp::Minus => to - self.amount,
-            RollOp::Times => to * self.amount,
-            RollOp::Divide => to / self.amount,
-        }
-    }
-
-    fn format(&self) -> String {
-        format!("{} {}", self.op.format(), self.amount)
-    }
-}
-
-struct Roll {
-    quantity: u32,
-    size: u32,
-    suff: RollSuff,
-    mods: Vec<RollMod>,
-}
-
-impl Roll {
-    fn resolve(self) -> RollOutcome {
-        let mut results = Vec::new();
-        for _ in 0..self.quantity.max(1) {
-            results.push(rand::random_range(1..=self.size));
-        }
-
-        let rolls_total = match self.suff {
-            RollSuff::None => results.iter().copied().sum(),
-            RollSuff::Advantage => results.iter().copied().max().unwrap_or(0),
-            RollSuff::Disadvantage => {
-                results.iter().copied().min().unwrap_or(0)
-            }
-            RollSuff::Keep(n) => {
-                let mut sorted = results.clone();
-                sorted.sort();
-                sorted.reverse();
-                let n = (n as usize).min(sorted.len());
-                (&sorted[0..n]).iter().copied().sum()
-            }
-        };
-
-        let mut value = rolls_total as f64;
-        for modifier in &self.mods {
-            value = modifier.apply(value);
-        }
-
-        RollOutcome {
-            roll: self,
-            results,
-            value,
-        }
-    }
-}
-
-struct RollOutcome {
-    roll: Roll,
-    results: Vec<u32>,
-    value: f64,
-}
-
-impl RollOutcome {
-    fn format(&self) -> String {
-        let mods = if self.roll.mods.is_empty() {
-            String::new()
-        } else {
-            let mods = self
-                .roll
-                .mods
-                .iter()
-                .map(|m| m.format())
-                .collect::<Vec<String>>()
-                .join(" ");
-            format!(" {mods}")
-        };
-
-        let roll = format!("{}d{}{}", self.roll.quantity, self.roll.size, mods);
-        let nums = self
-            .results
-            .iter()
-            .map(|v| v.to_string())
-            .collect::<Vec<String>>()
-            .join(", ");
-
-        let val = if self.value.fract() == 0.0 {
-            format!("{}", self.value)
-        } else {
-            format!("{:.2}", self.value)
-        };
-
-        format!("Roll: {roll}    Values: {nums}    Total: {val}")
-    }
-}
-
-fn take_leading_int(text: &[char]) -> Option<(&[char], u32)> {
-    let mut started = false;
-    let mut val = 0;
-    for (i, c) in text.iter().enumerate() {
-        match c {
-            _ if c.is_whitespace() && !started => (),
-            v if v.is_digit(10) => {
-                val *= 10;
-                val += v.to_digit(10).unwrap();
-                started = true;
-            }
-            _ if started => return Some((&text[i..], val)),
-            _ => return None,
-        }
-    }
-
-    if started { Some((&[], val)) } else { None }
-}
-
-fn take_leading_number(text: &[char]) -> Option<(&[char], f64)> {
-    let mut num = String::new();
-    let mut text = text;
-    while let Some((rest, c)) = next_char(text) {
-        match c {
-            '.' => {
-                if !num.contains('.') {
-                    num.push('.');
-                } else {
-                    return num.parse().ok().map(|v| (text, v));
-                }
-            }
-            _ if c.is_digit(10) => num.push(c),
-            _ => return num.parse().ok().map(|v| (text, v)),
-        }
-
-        text = rest;
-    }
-    num.parse().ok().map(|v| (text, v))
-}
-
-fn next_char(text: &[char]) -> Option<(&[char], char)> {
-    let mut stripped = text;
-    while !stripped.is_empty() && stripped[0].is_whitespace() {
-        stripped = &stripped[1..];
-    }
-
-    if !stripped.is_empty() {
-        Some((&stripped[1..], stripped[0]))
-    } else {
-        None
-    }
-}
-
-fn expect(expected: char, text: &[char]) -> Option<&[char]> {
-    let (rest, actual) = next_char(text)?;
-    if actual == expected { Some(rest) } else { None }
-}
-
-fn parse_roll_suff_mods(
-    text: &[char],
-) -> Option<(&[char], RollSuff, Vec<RollMod>)> {
-    let mut suff = RollSuff::None;
-    let mut mods = Vec::new();
-
-    let (mut text, c) = next_char(text)?;
-    match c {
-        'a' => suff = RollSuff::Advantage,
-        'd' => suff = RollSuff::Disadvantage,
-        'k' => match take_leading_int(text) {
-            Some((rest, num)) => {
-                text = rest;
-                suff = RollSuff::Keep(num);
-            }
-            None => suff = RollSuff::Keep(1),
-        },
-        c if RollOp::from(c).is_some() => {
-            let op = RollOp::from(c).unwrap();
-            let val;
-            (text, val) = take_leading_number(text)?;
-            mods.push(RollMod { op, amount: val });
-        }
-        _ => return None,
-    }
-
-    match parse_roll_suff_mods(text) {
-        Some((text, suff, more_mods)) => {
-            mods.extend(more_mods.into_iter());
-            Some((text, suff, mods))
-        }
-        None => Some((text, suff, mods)),
-    }
-}
-
-fn parse_roll(text: &[char]) -> Option<(Roll, &[char])> {
-    let mut roll = Roll {
-        quantity: 0,
-        size: 0,
-        suff: RollSuff::None,
-        mods: Vec::new(),
-    };
-
-    let (text, quantity) = take_leading_int(text)?;
-    roll.quantity = quantity;
-    let text = expect('d', text)?;
-    let (mut text, size) = take_leading_int(text)?;
-    roll.size = size;
-    if let Some((rest, suff, mods)) = parse_roll_suff_mods(text) {
-        text = rest;
-        roll.suff = suff;
-        roll.mods = mods;
-    }
-
-    Some((roll, text))
-}
+mod roll;
 
 struct Stat {
     name: String,
@@ -390,13 +141,7 @@ impl Scene for RollScene {
             Event::Key(evt) => match evt.code {
                 KeyCode::Enter => {
                     let text = self.input.value_and_reset();
-                    if let Some((roll, _)) = parse_roll(
-                        text.chars().collect::<Vec<char>>().as_slice(),
-                    ) {
-                        self.rolls.push(roll.resolve().format());
-                    } else {
-                        self.rolls.push("Parse failure.".to_string());
-                    }
+                    self.rolls.push(roll::roll(&text));
                     HandleResult::Consume
                 }
                 KeyCode::Char('h') => HandleResult::Default,
@@ -535,9 +280,10 @@ impl App {
                 .collect::<Vec<Line>>();
             let paragraph = Paragraph::new(lines)
                 .block(Block::bordered().title("help"))
-                .on_black();
+                .style(Style::default().bg(Color::Black));
 
             let area = frame.area().inner(Margin::new(4, 2));
+            frame.render_widget(Clear, area);
             frame.render_widget(paragraph, area);
         }
     }
