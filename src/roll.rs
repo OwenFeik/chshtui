@@ -1,3 +1,173 @@
+use ratatui::widgets::{Cell, Table};
+use ratatui::{
+    Frame,
+    layout::{Alignment, Constraint, Direction, Layout},
+    widgets::{Block, Paragraph, Row},
+};
+use tui_input::Input;
+use tui_input::backend::crossterm::EventHandler;
+
+pub struct RollScene {
+    input: tui_input::Input,
+    results: Vec<(String, String, String)>,
+    backlog_index: usize,
+    backlog_fallback: String,
+}
+
+impl RollScene {
+    pub fn new() -> Self {
+        Self {
+            input: tui_input::Input::new(String::new()),
+            results: Vec::new(),
+            backlog_index: usize::max_value(),
+            backlog_fallback: String::new(),
+        }
+    }
+}
+
+impl crate::Scene for RollScene {
+    fn draw(&self, frame: &mut Frame) {
+        let [rolls_area, input_area] = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Fill(1), Constraint::Length(3)])
+            .areas(frame.area());
+
+        let header = ["Roll", "Values", "Total"]
+            .into_iter()
+            .map(Cell::from)
+            .collect::<Row>()
+            .height(1);
+        let rows: Vec<Row> = self
+            .results
+            .iter()
+            .map(|(a, b, c)| {
+                Row::new(
+                    [a, b, c].iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
+                )
+                .height(1)
+            })
+            .collect();
+
+        let table = Table::new(
+            rows,
+            vec![
+                Constraint::Fill(1),
+                Constraint::Fill(3),
+                Constraint::Fill(1),
+            ],
+        )
+        .header(header)
+        .block(
+            Block::bordered()
+                .title_alignment(Alignment::Center)
+                .title("rolls"),
+        );
+        frame.render_widget(table, rolls_area);
+
+        let input = Paragraph::new(self.input.value())
+            .block(Block::bordered().title("input"));
+        frame.render_widget(input, input_area);
+    }
+
+    fn handle(
+        &mut self,
+        event: ratatui::crossterm::event::Event,
+    ) -> crate::HandleResult {
+        use crate::HandleResult;
+        use ratatui::crossterm::event::{Event, KeyCode};
+
+        match event {
+            Event::Key(evt) => match evt.code {
+                KeyCode::Enter => {
+                    let text = self.input.value_and_reset();
+                    if let Some(roll) = parse_roll(&text) {
+                        let oc = roll.resolve();
+                        let row = (
+                            oc.roll.format(),
+                            oc.format_results(),
+                            oc.format_value(),
+                        );
+                        self.results.push(row);
+                    } else {
+                        self.results.push((
+                            "Parse failure".to_string(),
+                            String::new(),
+                            String::new(),
+                        ));
+                    }
+                    HandleResult::Consume
+                }
+                KeyCode::Up => {
+                    if self.backlog_index == usize::max_value() {
+                        self.backlog_fallback = self.input.value_and_reset();
+                        self.backlog_index = 0;
+                    } else {
+                        self.backlog_index =
+                            self.results.len().min(self.backlog_index + 1);
+                    }
+                    let value = self
+                        .results
+                        .get(self.backlog_index)
+                        .map(|r| r.0.clone())
+                        .unwrap_or_default();
+                    self.input = Input::default().with_value(value);
+                    HandleResult::Consume
+                }
+                KeyCode::Down => {
+                    let value = if self.backlog_index == usize::max_value() {
+                        self.backlog_fallback.clone()
+                    } else {
+                        self.backlog_index = self.backlog_index.wrapping_sub(1);
+                        self.results
+                            .get(self.backlog_index)
+                            .map(|r| r.0.clone())
+                            .unwrap_or_default()
+                    };
+                    self.input = Input::default().with_value(value);
+                    HandleResult::Consume
+                }
+                KeyCode::Char('h') => HandleResult::Default,
+                KeyCode::Char('l') => {
+                    self.results.clear();
+                    HandleResult::Consume
+                }
+                KeyCode::Char('q') => HandleResult::Default,
+                KeyCode::Char('r') => HandleResult::Consume,
+                _ => {
+                    if let Some(i_evt) = self.input.handle_event(&event) {
+                        if i_evt.value {
+                            self.backlog_index = usize::max_value();
+                        }
+                        HandleResult::Consume
+                    } else {
+                        HandleResult::Default
+                    }
+                }
+            },
+            _ => HandleResult::Default,
+        }
+    }
+
+    fn help(&self) -> &'static [crate::HelpEntry] {
+        use crate::HelpEntry;
+
+        &[
+            HelpEntry {
+                key: "q",
+                desc: "Close",
+            },
+            HelpEntry {
+                key: "l",
+                desc: "Clear rolls",
+            },
+            HelpEntry {
+                key: "Enter",
+                desc: "Submit roll",
+            },
+        ]
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum RollSuff {
     None,
@@ -138,23 +308,24 @@ struct RollOutcome {
 }
 
 impl RollOutcome {
-    fn format(&self) -> String {
-        let roll = self.roll.format();
+    fn into_roll(self) -> Roll {
+        self.roll
+    }
 
-        let nums = self
-            .results
+    fn format_results(&self) -> String {
+        self.results
             .iter()
             .map(|v| v.to_string())
             .collect::<Vec<String>>()
-            .join(", ");
+            .join(", ")
+    }
 
-        let val = if self.value.fract() == 0.0 {
+    fn format_value(&self) -> String {
+        if self.value.fract() == 0.0 {
             format!("{}", self.value)
         } else {
             format!("{:.2}", self.value)
-        };
-
-        format!("Roll: {roll}    Values: {nums}    Total: {val}")
+        }
     }
 }
 
@@ -282,14 +453,6 @@ fn parse_roll(text: &str) -> Option<Roll> {
     let roll =
         parse_one_roll(text.chars().collect::<Vec<char>>().as_slice())?.0;
     Some(roll)
-}
-
-pub fn roll(text: &str) -> String {
-    if let Some(roll) = parse_roll(text) {
-        roll.resolve().format()
-    } else {
-        "Parse failure.".to_string()
-    }
 }
 
 #[cfg(test)]

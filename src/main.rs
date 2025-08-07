@@ -3,7 +3,6 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Clear, Paragraph},
 };
-use tui_input::{Input, backend::crossterm::EventHandler};
 
 mod roll;
 
@@ -98,86 +97,6 @@ impl Default for Stats {
                 },
             ],
         }
-    }
-}
-
-struct RollScene {
-    input: Input,
-    rolls: Vec<String>,
-}
-
-impl RollScene {
-    fn new() -> Self {
-        Self {
-            input: Input::new(String::new()),
-            rolls: Vec::new(),
-        }
-    }
-}
-
-impl Scene for RollScene {
-    fn draw(&self, frame: &mut Frame) {
-        let [rolls_area, input_area] = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Fill(1), Constraint::Length(3)])
-            .areas(frame.area());
-
-        let lines: Vec<Line> =
-            self.rolls.iter().map(|r| Line::from(r.as_str())).collect();
-        let rolls = Paragraph::new(lines).block(
-            Block::bordered()
-                .title_alignment(Alignment::Center)
-                .title("rolls"),
-        );
-        frame.render_widget(rolls, rolls_area);
-
-        let input = Paragraph::new(self.input.value())
-            .block(Block::bordered().title("input"));
-        frame.render_widget(input, input_area);
-    }
-
-    fn handle(&mut self, event: Event) -> HandleResult {
-        match event {
-            Event::Key(evt) => match evt.code {
-                KeyCode::Enter => {
-                    let text = self.input.value_and_reset();
-                    self.rolls.push(roll::roll(&text));
-                    HandleResult::Consume
-                }
-                KeyCode::Char('h') => HandleResult::Default,
-                KeyCode::Char('l') => {
-                    self.rolls.clear();
-                    HandleResult::Consume
-                }
-                KeyCode::Char('q') => HandleResult::Default,
-                KeyCode::Char('r') => HandleResult::Consume,
-                _ => {
-                    if self.input.handle_event(&event).is_some() {
-                        HandleResult::Consume
-                    } else {
-                        HandleResult::Default
-                    }
-                }
-            },
-            _ => HandleResult::Default,
-        }
-    }
-
-    fn help(&self) -> &'static [HelpEntry] {
-        &[
-            HelpEntry {
-                key: "q",
-                desc: "Close",
-            },
-            HelpEntry {
-                key: "l",
-                desc: "Clear rolls",
-            },
-            HelpEntry {
-                key: "Enter",
-                desc: "Submit roll",
-            },
-        ]
     }
 }
 
@@ -320,7 +239,9 @@ impl App {
                     self.scenes.pop();
                 }
             }
-            KeyCode::Char('r') => self.scenes.push(Box::new(RollScene::new())),
+            KeyCode::Char('r') => {
+                self.scenes.push(Box::new(roll::RollScene::new()))
+            }
             _ => (),
         }
     }
