@@ -114,10 +114,12 @@ impl crate::Scene for RollScene {
                     HandleResult::Consume
                 }
                 KeyCode::Down => {
+                    if self.backlog_index != usize::max_value() {
+                        self.backlog_index = self.backlog_index.wrapping_sub(1);
+                    }
                     let value = if self.backlog_index == usize::max_value() {
                         self.backlog_fallback.clone()
                     } else {
-                        self.backlog_index = self.backlog_index.wrapping_sub(1);
                         self.results
                             .get(self.backlog_index)
                             .map(|r| r.0.clone())
@@ -293,7 +295,11 @@ impl Roll {
 
         format!(
             "{}d{}{}{}",
-            self.quantity,
+            if self.quantity != 1 {
+                self.quantity.to_string()
+            } else {
+                String::new()
+            },
             self.size,
             self.suff.format(),
             mods
@@ -387,6 +393,13 @@ fn expect(expected: char, text: &[char]) -> Option<&[char]> {
     if actual == expected { Some(rest) } else { None }
 }
 
+fn trim_whitespace(mut text: &[char]) -> &[char] {
+    while !text.is_empty() && text[0].is_whitespace() {
+        text = &text[1..];
+    }
+    text
+}
+
 fn parse_roll_suff_mods(
     text: &[char],
 ) -> Option<(&[char], RollSuff, Vec<RollMod>)> {
@@ -435,9 +448,13 @@ fn parse_one_roll(text: &[char]) -> Option<(Roll, &[char])> {
         mods: Vec::new(),
     };
 
-    let (text, quantity) = take_leading_int(text)?;
+    let (text, quantity) =
+        if let Some((text, quantity)) = take_leading_int(text) {
+            (expect('d', text)?, quantity)
+        } else {
+            (expect('d', trim_whitespace(text))?, 1)
+        };
     roll.quantity = quantity;
-    let text = expect('d', text)?;
     let (mut text, size) = take_leading_int(text)?;
     roll.size = size;
     if let Some((rest, suff, mods)) = parse_roll_suff_mods(text) {
@@ -563,5 +580,15 @@ mod test {
     fn test_expect() {
         let expected: &[char] = &['6', 'k', '3'];
         assert_eq!(expect('d', &[' ', 'd', '6', 'k', '3']).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_leading_d() {
+        assert_eq!(parse_roll("d20").unwrap().format(), "d20");
+    }
+
+    #[test]
+    fn test_trim_whitespace() {
+        assert_eq!(trim_whitespace(&[' ', ' ', 'd']), &['d']);
     }
 }

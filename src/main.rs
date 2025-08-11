@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEventKind},
     prelude::*,
@@ -104,6 +106,7 @@ impl Default for Stats {
 struct SheetScene {
     stats: Stats,
 }
+
 impl Scene for SheetScene {
     fn draw(&self, frame: &mut Frame) {
         let layout = Layout::default()
@@ -157,16 +160,29 @@ trait Scene {
     fn help(&self) -> &'static [HelpEntry];
 }
 
+#[derive(Hash, PartialEq, Eq)]
+enum Scenes {
+    Roll,
+    Sheet,
+}
+
 struct App {
-    scenes: Vec<Box<dyn Scene>>,
+    scenes: HashMap<Scenes, Box<dyn Scene>>,
+    active_scene: Scenes,
     show_help: bool,
+    should_close: bool,
 }
 
 impl App {
     fn new() -> Self {
+        let mut scenes: HashMap<Scenes, Box<dyn Scene>> = HashMap::new();
+        scenes.insert(Scenes::Sheet, Box::new(SheetScene::default()));
+        scenes.insert(Scenes::Roll, Box::new(roll::RollScene::new()));
         Self {
-            scenes: vec![Box::new(SheetScene::default())],
+            scenes,
+            active_scene: Scenes::Sheet,
             show_help: false,
+            should_close: false,
         }
     }
 
@@ -174,7 +190,7 @@ impl App {
         &mut self,
         term: &mut ratatui::DefaultTerminal,
     ) -> std::io::Result<()> {
-        while !self.scenes.is_empty() {
+        while !self.should_close {
             term.draw(|frame| self.draw(frame))?;
             self.handle_events()?;
         }
@@ -182,7 +198,7 @@ impl App {
     }
 
     fn draw(&self, frame: &mut Frame) {
-        let Some(scene) = self.scenes.last() else {
+        let Some(scene) = self.scenes.get(&self.active_scene) else {
             return;
         };
 
@@ -212,17 +228,17 @@ impl App {
         let event = ratatui::crossterm::event::read()?;
         let outcome = self
             .scenes
-            .last_mut()
+            .get_mut(&self.active_scene)
             .map(|scene| scene.handle(event.clone()))
             .unwrap_or(HandleResult::Consume);
 
         match outcome {
             HandleResult::Consume => {}
             HandleResult::Default => {
-                if let Event::Key(evt) = event
-                    && evt.kind == KeyEventKind::Press
-                {
-                    self.handle_key_press(evt.code);
+                if let Event::Key(evt) = event {
+                    if evt.kind == KeyEventKind::Press {
+                        self.handle_key_press(evt.code);
+                    }
                 }
             }
         }
@@ -235,12 +251,14 @@ impl App {
             KeyCode::Char('q') => {
                 if self.show_help {
                     self.show_help = false;
+                } else if self.active_scene == Scenes::Sheet {
+                    self.should_close = true;
                 } else {
-                    self.scenes.pop();
+                    self.active_scene = Scenes::Sheet;
                 }
             }
             KeyCode::Char('r') => {
-                self.scenes.push(Box::new(roll::RollScene::new()))
+                self.active_scene = Scenes::Roll;
             }
             _ => (),
         }
