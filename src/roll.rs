@@ -1,7 +1,7 @@
 use ratatui::widgets::{Cell, Table};
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout},
     widgets::{Block, Paragraph, Row},
 };
 use tui_input::Input;
@@ -57,15 +57,11 @@ impl crate::Scene for RollScene {
             ],
         )
         .header(header)
-        .block(
-            Block::bordered()
-                .title_alignment(Alignment::Center)
-                .title("rolls"),
-        );
+        .block(Block::bordered().title("Rolls"));
         frame.render_widget(table, rolls_area);
 
         let input = Paragraph::new(self.input.value())
-            .block(Block::bordered().title("input"));
+            .block(Block::bordered().title("Input"));
         frame.render_widget(input, input_area);
     }
 
