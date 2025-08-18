@@ -1,10 +1,12 @@
 use ratatui::{
     Frame,
-    crossterm::style::Stylize,
     layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Stylize},
     text::{Line, Span},
     widgets::{Block, Cell, Paragraph, Row, Table},
 };
+
+use crate::{IndexedElement, Location};
 
 #[derive(Debug)]
 enum Stat {
@@ -47,38 +49,13 @@ impl Stat {
     }
 }
 
-pub struct Stats {
+struct Stats {
     strength: i8,
     dexterity: i8,
     constitution: i8,
     intelligence: i8,
     wisdom: i8,
     charisma: i8,
-}
-
-impl Stats {
-    pub fn render(&self, area: Rect, frame: &mut Frame) {
-        let stats = [
-            (Stat::Strength, self.strength),
-            (Stat::Dexterity, self.dexterity),
-            (Stat::Constitution, self.constitution),
-            (Stat::Intelligence, self.intelligence),
-            (Stat::Wisdom, self.wisdom),
-            (Stat::Charisma, self.charisma),
-        ];
-
-        let constraints: Vec<Constraint> =
-            std::iter::repeat(Constraint::Ratio(1, stats.len() as u32))
-                .take(stats.len())
-                .collect();
-        let layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(constraints)
-            .split(area);
-        for (i, (stat, score)) in stats.iter().enumerate() {
-            frame.render_widget(stat.render(*score), layout[i]);
-        }
-    }
 }
 
 impl Default for Stats {
@@ -91,6 +68,48 @@ impl Default for Stats {
             wisdom: 10,
             charisma: 10,
         }
+    }
+}
+
+#[derive(Default)]
+pub struct StatsElement(Stats);
+
+impl IndexedElement for StatsElement {
+    fn render_indexed(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        idx: Option<usize>,
+    ) {
+        let ss = &self.0;
+        let stats = [
+            (Stat::Strength, ss.strength),
+            (Stat::Dexterity, ss.dexterity),
+            (Stat::Constitution, ss.constitution),
+            (Stat::Intelligence, ss.intelligence),
+            (Stat::Wisdom, ss.wisdom),
+            (Stat::Charisma, ss.charisma),
+        ];
+
+        let constraints: Vec<Constraint> =
+            std::iter::repeat(Constraint::Ratio(1, stats.len() as u32))
+                .take(stats.len())
+                .collect();
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(constraints)
+            .split(area);
+        for (i, (stat, score)) in stats.iter().enumerate() {
+            let mut widget = stat.render(*score);
+            if idx == Some(i) {
+                widget = widget.bold();
+            }
+            frame.render_widget(widget, layout[i]);
+        }
+    }
+
+    fn location(&self) -> Location {
+        Location::Stats
     }
 }
 
@@ -116,7 +135,7 @@ impl Proficiency {
         for prof in LAYOUT {
             let c = format!("{:?}", prof).chars().next().unwrap().to_string();
             if prof == self {
-                spans.push(c.stylize().bold().to_string().into());
+                spans.push(c.bold().to_string().into());
             } else {
                 spans.push(c.into());
             }
@@ -141,21 +160,7 @@ impl Skill {
     }
 }
 
-pub struct Skills(Vec<Skill>);
-
-impl Skills {
-    pub fn render(&self) -> Table {
-        let rows = self.0.iter().map(|s| {
-            Row::new([
-                Cell::from(s.name.as_str()),
-                Cell::from(s.proficiency.render()),
-            ])
-        });
-        Table::default()
-            .rows(rows)
-            .block(Block::bordered().title("Skills"))
-    }
-}
+struct Skills(Vec<Skill>);
 
 impl Default for Skills {
     fn default() -> Self {
@@ -177,5 +182,34 @@ impl Default for Skills {
             Skill::new("Survival", Stat::Wisdom),
             Skill::new("Thievery", Stat::Dexterity),
         ])
+    }
+}
+
+#[derive(Default)]
+pub struct SkillsElement(Skills);
+
+impl IndexedElement for SkillsElement {
+    fn render_indexed(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        idx: Option<usize>,
+    ) {
+        let rows = self.0.0.iter().enumerate().map(|(i, s)| {
+            let row = Row::new([
+                Cell::from(s.name.as_str()),
+                Cell::from(s.proficiency.render()),
+            ]);
+            if idx == Some(i) { row.bold() } else { row }
+        });
+        let table = Table::default()
+            .rows(rows)
+            .widths(vec![Constraint::Fill(1), Constraint::Max(4)])
+            .block(Block::bordered().title("Skills"));
+        frame.render_widget(table, area);
+    }
+
+    fn location(&self) -> Location {
+        Location::Skills
     }
 }
