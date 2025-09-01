@@ -1,14 +1,18 @@
+use std::collections::HashMap;
+
 use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Stylize},
-    text::{Line, Span},
+    layout::Constraint,
+    style::Stylize,
+    text::{Line, Span, ToLine},
     widgets::{Block, Cell, Paragraph, Row, Table},
 };
 
-use crate::{IndexedElement, Location};
+use crate::{
+    SheetState,
+    layout::{self, SceneElement},
+};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Stat {
     Strength,
     Dexterity,
@@ -19,6 +23,15 @@ enum Stat {
 }
 
 impl Stat {
+    const STATS: &[Stat] = &[
+        Stat::Strength,
+        Stat::Dexterity,
+        Stat::Constitution,
+        Stat::Intelligence,
+        Stat::Wisdom,
+        Stat::Charisma,
+    ];
+
     fn short(&self) -> String {
         let name = format!("{:?}", self);
         if name.len() < 3 {
@@ -47,69 +60,47 @@ impl Stat {
         .centered()
         .block(Block::bordered().title(self.short()))
     }
+
+    fn element(&self) -> layout::SceneElement<SheetState> {
+        let stat = *self;
+        layout::SceneElement::new(
+            5,                  // Name, borders.
+            Constraint::Min(4), // Top border, score, mod, bottom border.
+            Box::new(move |frame, area, state| {
+                let score = state.stats.score(stat);
+                let widget = stat.render(score);
+                frame.render_widget(widget, area);
+            }),
+        )
+    }
 }
 
-struct Stats {
-    strength: i8,
-    dexterity: i8,
-    constitution: i8,
-    intelligence: i8,
-    wisdom: i8,
-    charisma: i8,
+pub struct Stats(HashMap<Stat, i8>);
+
+impl Stats {
+    fn score(&self, stat: Stat) -> i8 {
+        self.0.get(&stat).copied().unwrap_or(10)
+    }
+
+    fn modifier(&self, stat: Stat) -> i64 {
+        Stat::modifier(self.score(stat))
+    }
+
+    pub fn elements(&self) -> Vec<layout::SceneElement<SheetState>> {
+        Stat::STATS.iter().map(Stat::element).collect()
+    }
 }
 
 impl Default for Stats {
     fn default() -> Self {
-        Stats {
-            strength: 10,
-            dexterity: 10,
-            constitution: 10,
-            intelligence: 10,
-            wisdom: 10,
-            charisma: 10,
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct StatsElement(Stats);
-
-impl IndexedElement for StatsElement {
-    fn render_indexed(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        idx: Option<usize>,
-    ) {
-        let ss = &self.0;
-        let stats = [
-            (Stat::Strength, ss.strength),
-            (Stat::Dexterity, ss.dexterity),
-            (Stat::Constitution, ss.constitution),
-            (Stat::Intelligence, ss.intelligence),
-            (Stat::Wisdom, ss.wisdom),
-            (Stat::Charisma, ss.charisma),
-        ];
-
-        let constraints: Vec<Constraint> =
-            std::iter::repeat(Constraint::Ratio(1, stats.len() as u32))
-                .take(stats.len())
-                .collect();
-        let layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(constraints)
-            .split(area);
-        for (i, (stat, score)) in stats.iter().enumerate() {
-            let mut widget = stat.render(*score);
-            if idx == Some(i) {
-                widget = widget.bold();
-            }
-            frame.render_widget(widget, layout[i]);
-        }
-    }
-
-    fn location(&self) -> Location {
-        Location::Stats
+        Self(HashMap::from([
+            (Stat::Strength, 10),
+            (Stat::Dexterity, 10),
+            (Stat::Constitution, 10),
+            (Stat::Intelligence, 10),
+            (Stat::Wisdom, 10),
+            (Stat::Charisma, 10),
+        ]))
     }
 }
 
@@ -158,9 +149,41 @@ impl Skill {
             proficiency: Proficiency::Untrained,
         }
     }
+
+    fn element(&self) -> layout::SceneElement<SheetState> {
+        let name = self.name.clone();
+        layout::SceneElement::new(
+            self.name.len() as u16 + 4 + 2, // Name, prof, borders.
+            Constraint::Max(1),             // Single table row.
+            Box::new(move |frame, area, state| {
+                if let Some(skill) = state.skills.lookup(&name) {
+                    let widget = Table::new(
+                        [Row::new([
+                            Cell::new(name.as_str()),
+                            Cell::new(
+                                skill.proficiency.render().right_aligned(),
+                            ),
+                        ])],
+                        [Constraint::Fill(1), Constraint::Min(4)],
+                    );
+                    frame.render_widget(widget, area);
+                }
+            }),
+        )
+    }
 }
 
-struct Skills(Vec<Skill>);
+pub struct Skills(Vec<Skill>);
+
+impl Skills {
+    fn lookup(&self, name: &str) -> Option<&Skill> {
+        self.0.iter().find(|s| s.name == name)
+    }
+
+    pub fn elements(&self) -> Vec<SceneElement<SheetState>> {
+        self.0.iter().map(|skill| skill.element()).collect()
+    }
+}
 
 impl Default for Skills {
     fn default() -> Self {
@@ -182,34 +205,5 @@ impl Default for Skills {
             Skill::new("Survival", Stat::Wisdom),
             Skill::new("Thievery", Stat::Dexterity),
         ])
-    }
-}
-
-#[derive(Default)]
-pub struct SkillsElement(Skills);
-
-impl IndexedElement for SkillsElement {
-    fn render_indexed(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        idx: Option<usize>,
-    ) {
-        let rows = self.0.0.iter().enumerate().map(|(i, s)| {
-            let row = Row::new([
-                Cell::from(s.name.as_str()),
-                Cell::from(s.proficiency.render()),
-            ]);
-            if idx == Some(i) { row.bold() } else { row }
-        });
-        let table = Table::default()
-            .rows(rows)
-            .widths(vec![Constraint::Fill(1), Constraint::Max(4)])
-            .block(Block::bordered().title("Skills"));
-        frame.render_widget(table, area);
-    }
-
-    fn location(&self) -> Location {
-        Location::Skills
     }
 }
