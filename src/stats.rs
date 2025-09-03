@@ -3,13 +3,8 @@ use std::collections::HashMap;
 use ratatui::{
     layout::Constraint,
     style::Stylize,
-    text::{Line, Span, ToLine},
+    text::{Line, Span},
     widgets::{Block, Cell, Paragraph, Row, Table},
-};
-
-use crate::{
-    SheetState,
-    layout::{self, SceneElement},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -61,6 +56,7 @@ impl Stat {
         .block(Block::bordered().title(self.short()))
     }
 
+    /*
     fn element(&self) -> layout::SceneElement<SheetState> {
         let stat = *self;
         layout::SceneElement::new(
@@ -73,6 +69,7 @@ impl Stat {
             }),
         )
     }
+    */
 }
 
 pub struct Stats(HashMap<Stat, i8>);
@@ -84,10 +81,6 @@ impl Stats {
 
     fn modifier(&self, stat: Stat) -> i64 {
         Stat::modifier(self.score(stat))
-    }
-
-    pub fn elements(&self) -> Vec<layout::SceneElement<SheetState>> {
-        Stat::STATS.iter().map(Stat::element).collect()
     }
 }
 
@@ -105,7 +98,7 @@ impl Default for Stats {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Proficiency {
+pub enum Proficiency {
     Untrained,
     Trained,
     Expert,
@@ -114,7 +107,7 @@ enum Proficiency {
 }
 
 impl Proficiency {
-    fn render(&self) -> Line {
+    pub fn render(&self) -> Line {
         const LAYOUT: &[Proficiency] = &[
             Proficiency::Trained,
             Proficiency::Expert,
@@ -135,10 +128,10 @@ impl Proficiency {
     }
 }
 
-struct Skill {
-    name: String,
+pub struct Skill {
+    pub name: String,
     stat: Stat,
-    proficiency: Proficiency,
+    pub proficiency: Proficiency,
 }
 
 impl Skill {
@@ -149,39 +142,13 @@ impl Skill {
             proficiency: Proficiency::Untrained,
         }
     }
-
-    fn element(&self) -> layout::SceneElement<SheetState> {
-        let name = self.name.clone();
-        layout::SceneElement::new(
-            self.name.len() as u16 + 4 + 2, // Name, prof, borders.
-            Constraint::Max(1),             // Single table row.
-            Box::new(move |frame, area, state| {
-                if let Some(skill) = state.skills.lookup(&name) {
-                    let widget = Table::new(
-                        [Row::new([
-                            Cell::new(name.as_str()),
-                            Cell::new(
-                                skill.proficiency.render().right_aligned(),
-                            ),
-                        ])],
-                        [Constraint::Fill(1), Constraint::Min(4)],
-                    );
-                    frame.render_widget(widget, area);
-                }
-            }),
-        )
-    }
 }
 
-pub struct Skills(Vec<Skill>);
+pub struct Skills(pub Vec<Skill>);
 
 impl Skills {
     fn lookup(&self, name: &str) -> Option<&Skill> {
         self.0.iter().find(|s| s.name == name)
-    }
-
-    pub fn elements(&self) -> Vec<SceneElement<SheetState>> {
-        self.0.iter().map(|skill| skill.element()).collect()
     }
 }
 

@@ -6,6 +6,7 @@ use ratatui::{
     widgets::{Block, Clear, Paragraph},
 };
 
+mod els;
 mod layout;
 mod roll;
 mod stats;
@@ -19,35 +20,21 @@ struct SheetState {
 
 struct SheetScene {
     state: SheetState,
-    layout: layout::SceneLayout<SheetState>,
+    layout: layout::View,
 }
 
 impl SheetScene {
     fn new() -> Self {
         let state: SheetState = Default::default();
-        let name = layout::SceneElement::new(
-            32,
-            Constraint::Max(3),
-            Box::new(|frame, area, state: &SheetState| {
-                frame.render_widget(
-                    Paragraph::new(state.name.as_str())
-                        .block(Block::bordered()),
-                    area,
-                );
-            }),
-        );
-        let mut col2 = vec![name];
-        col2.extend(state.skills.elements().into_iter());
-        let layout = layout::SceneLayout::default()
-            .column(state.stats.elements())
-            .column(col2);
+        let mut layout = layout::View::new();
+        layout.group(Box::new(els::SkillsEl));
         Self { state, layout }
     }
 }
 
 impl Scene for SheetScene {
     fn draw(&self, frame: &mut Frame) {
-        self.layout.render(frame, &self.state);
+        self.layout.render(frame, &self.state, (0, 0));
     }
 
     fn handle(&mut self, event: Event) -> HandleResult {
