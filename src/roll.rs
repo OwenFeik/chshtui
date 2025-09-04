@@ -26,7 +26,7 @@ impl RollScene {
 }
 
 impl crate::Scene for RollScene {
-    fn draw(&self, frame: &mut Frame) {
+    fn draw(&mut self, frame: &mut Frame) {
         let [rolls_area, input_area] = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![Constraint::Fill(1), Constraint::Length(3)])

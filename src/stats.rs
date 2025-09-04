@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 
 use ratatui::{
-    layout::Constraint,
     style::Stylize,
     text::{Line, Span},
-    widgets::{Block, Cell, Paragraph, Row, Table},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Stat {
+pub enum Stat {
     Strength,
     Dexterity,
     Constitution,
@@ -18,7 +16,7 @@ enum Stat {
 }
 
 impl Stat {
-    const STATS: &[Stat] = &[
+    pub const STATS: &[Stat] = &[
         Stat::Strength,
         Stat::Dexterity,
         Stat::Constitution,
@@ -27,7 +25,7 @@ impl Stat {
         Stat::Charisma,
     ];
 
-    fn short(&self) -> String {
+    pub fn short(&self) -> String {
         let name = format!("{:?}", self);
         if name.len() < 3 {
             name.clone()
@@ -36,50 +34,19 @@ impl Stat {
         }
     }
 
-    fn modifier(value: i8) -> i64 {
+    pub fn modifier(value: i8) -> i64 {
         ((value - 10) / 2) as i64
     }
-
-    fn render(&self, value: i8) -> Paragraph {
-        let modifier = Self::modifier(value);
-        let modifier = if modifier < 0 {
-            modifier.to_string()
-        } else {
-            format!("+{modifier}")
-        };
-
-        Paragraph::new(vec![
-            Line::from(value.to_string()),
-            Line::from(modifier),
-        ])
-        .centered()
-        .block(Block::bordered().title(self.short()))
-    }
-
-    /*
-    fn element(&self) -> layout::SceneElement<SheetState> {
-        let stat = *self;
-        layout::SceneElement::new(
-            5,                  // Name, borders.
-            Constraint::Min(4), // Top border, score, mod, bottom border.
-            Box::new(move |frame, area, state| {
-                let score = state.stats.score(stat);
-                let widget = stat.render(score);
-                frame.render_widget(widget, area);
-            }),
-        )
-    }
-    */
 }
 
 pub struct Stats(HashMap<Stat, i8>);
 
 impl Stats {
-    fn score(&self, stat: Stat) -> i8 {
+    pub fn score(&self, stat: Stat) -> i8 {
         self.0.get(&stat).copied().unwrap_or(10)
     }
 
-    fn modifier(&self, stat: Stat) -> i64 {
+    pub fn modifier(&self, stat: Stat) -> i64 {
         Stat::modifier(self.score(stat))
     }
 }

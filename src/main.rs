@@ -7,9 +7,9 @@ use ratatui::{
 };
 
 mod els;
-mod layout;
 mod roll;
 mod stats;
+mod view;
 
 #[derive(Default)]
 struct SheetState {
@@ -20,24 +20,64 @@ struct SheetState {
 
 struct SheetScene {
     state: SheetState,
-    layout: layout::View,
+    layout: view::View,
+    position: view::SelectedEl,
 }
 
 impl SheetScene {
     fn new() -> Self {
-        let state: SheetState = Default::default();
-        let mut layout = layout::View::new();
-        layout.group(Box::new(els::SkillsEl));
-        Self { state, layout }
+        let state: SheetState = SheetState {
+            name: "Character".to_string(),
+            ..Default::default()
+        };
+        let mut layout = view::View::new();
+        stats::Stat::STATS
+            .iter()
+            .for_each(|s| layout.add_el(Box::new(els::StatEl::new(*s))));
+        layout.add_group(Box::new(els::SkillsEl));
+        layout.add_column();
+        layout.add_el(Box::new(els::NameEl));
+        Self {
+            state,
+            layout,
+            position: (0, 0),
+        }
     }
 }
 
 impl Scene for SheetScene {
-    fn draw(&self, frame: &mut Frame) {
-        self.layout.render(frame, &self.state, (0, 0));
+    fn draw(&mut self, frame: &mut Frame) {
+        self.layout.render(frame, &self.state, self.position);
     }
 
     fn handle(&mut self, event: Event) -> HandleResult {
+        if let Event::Key(evt) = event {
+            if evt.kind == KeyEventKind::Press {
+                return match evt.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.position =
+                            self.layout.up(self.position, &self.state);
+                        HandleResult::Consume
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.position =
+                            self.layout.down(self.position, &self.state);
+                        HandleResult::Consume
+                    }
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        self.position =
+                            self.layout.left(self.position, &self.state);
+                        HandleResult::Consume
+                    }
+                    KeyCode::Right | KeyCode::Char('l') => {
+                        self.position =
+                            self.layout.right(self.position, &self.state);
+                        HandleResult::Consume
+                    }
+                    _ => HandleResult::Default,
+                };
+            }
+        }
         HandleResult::Default
     }
 
@@ -68,7 +108,7 @@ struct HelpEntry {
 
 trait Scene {
     /// Draw this scene into the frame buffer.
-    fn draw(&self, frame: &mut Frame);
+    fn draw(&mut self, frame: &mut Frame);
 
     /// Handle a terminal event that was performed.
     fn handle(&mut self, _event: Event) -> HandleResult {
@@ -116,8 +156,8 @@ impl App {
         Ok(())
     }
 
-    fn draw(&self, frame: &mut Frame) {
-        let Some(scene) = self.scenes.get(&self.active_scene) else {
+    fn draw(&mut self, frame: &mut Frame) {
+        let Some(scene) = self.scenes.get_mut(&self.active_scene) else {
             return;
         };
 
