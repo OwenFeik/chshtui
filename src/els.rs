@@ -10,7 +10,7 @@ use ratatui::{
 use crate::{
     HandleResult,
     stats::Stat,
-    view::{Dims, ElGroup, ElSimp, Modal, State},
+    view::{Dims, ElGroup, ElSimp, Scene, State},
 };
 
 /// Style the provided widget based on its selection state.
@@ -147,8 +147,10 @@ struct SkillModal {
     skill: String,
 }
 
-impl Modal for SkillModal {
+impl Scene for SkillModal {
     fn render(&self, frame: &mut Frame) {}
 
-    fn handle_key_press(&mut self, key: KeyCode) -> HandleResult {}
+    fn handle_key_press(&mut self, key: KeyCode) -> HandleResult {
+        HandleResult::Default
+    }
 }

@@ -1,13 +1,17 @@
 use std::collections::HashMap;
 
 use ratatui::{
-    crossterm::event::{Event, KeyCode, KeyEventKind},
+    crossterm::{
+        self,
+        event::{Event, KeyCode, KeyEventKind},
+    },
     prelude::*,
     widgets::{Block, Clear, Paragraph},
 };
 
 mod els;
 mod roll;
+mod scenes;
 mod stats;
 mod view;
 
@@ -18,81 +22,15 @@ struct SheetState {
     skills: stats::Skills,
 }
 
-struct SheetScene {
-    state: SheetState,
-    layout: view::View,
-    position: view::SelectedEl,
-}
-
-impl SheetScene {
-    fn new() -> Self {
-        let state: SheetState = SheetState {
-            name: "Character".to_string(),
-            ..Default::default()
-        };
-        let mut layout = view::View::new();
-        stats::Stat::STATS
-            .iter()
-            .for_each(|s| layout.add_el(Box::new(els::StatEl::new(*s))));
-        layout.add_group(Box::new(els::SkillsEl));
-        layout.add_column();
-        layout.add_el(Box::new(els::NameEl));
-        Self {
-            state,
-            layout,
-            position: (0, 0),
-        }
-    }
-}
-
-impl Scene for SheetScene {
-    fn draw(&mut self, frame: &mut Frame) {
-        self.layout.render(frame, &self.state, self.position);
-    }
-
-    fn handle(&mut self, event: Event) -> HandleResult {
-        if let Event::Key(evt) = event {
-            if evt.kind == KeyEventKind::Press {
-                return match evt.code {
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        self.position =
-                            self.layout.up(self.position, &self.state);
-                        HandleResult::Consume
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        self.position =
-                            self.layout.down(self.position, &self.state);
-                        HandleResult::Consume
-                    }
-                    KeyCode::Left | KeyCode::Char('h') => {
-                        self.position =
-                            self.layout.left(self.position, &self.state);
-                        HandleResult::Consume
-                    }
-                    KeyCode::Right | KeyCode::Char('l') => {
-                        self.position =
-                            self.layout.right(self.position, &self.state);
-                        HandleResult::Consume
-                    }
-                    _ => HandleResult::Default,
-                };
-            }
-        }
-        HandleResult::Default
-    }
-
-    fn help(&self) -> &'static [HelpEntry] {
-        &[
-            HelpEntry {
-                key: "h",
-                desc: "Show help",
-            },
-            HelpEntry {
-                key: "r",
-                desc: "Roll dice",
-            },
-        ]
-    }
+fn sheet_view() -> view::Scene {
+    let mut v = view::Scene::new();
+    stats::Stat::STATS
+        .iter()
+        .for_each(|s| v.add_el(Box::new(els::StatEl::new(*s))));
+    v.add_group(Box::new(els::SkillsEl));
+    v.add_column();
+    v.add_el(Box::new(els::NameEl));
+    v
 }
 
 #[derive(Eq, PartialEq)]
@@ -101,47 +39,24 @@ enum HandleResult {
     Default,
 }
 
-struct HelpEntry {
-    key: &'static str,
-    desc: &'static str,
-}
-
-trait Scene {
-    /// Draw this scene into the frame buffer.
-    fn draw(&mut self, frame: &mut Frame);
-
-    /// Handle a terminal event that was performed.
-    fn handle(&mut self, _event: Event) -> HandleResult {
-        HandleResult::Default
-    }
-
-    /// Lines of help text to display.
-    fn help(&self) -> &'static [HelpEntry];
-}
-
-#[derive(Hash, PartialEq, Eq)]
-enum Scenes {
-    Roll,
-    Sheet,
+struct SceneStackItem {
+    scene: Box<dyn view::Scene>,
+    position: view::SelectedEl,
 }
 
 struct App {
-    scenes: HashMap<Scenes, Box<dyn Scene>>,
-    active_scene: Scenes,
-    show_help: bool,
-    should_close: bool,
+    state: SheetState,
+    scene_stack: Vec<SceneStackItem>,
 }
 
 impl App {
     fn new() -> Self {
-        let mut scenes: HashMap<Scenes, Box<dyn Scene>> = HashMap::new();
-        scenes.insert(Scenes::Sheet, Box::new(SheetScene::new()));
-        scenes.insert(Scenes::Roll, Box::new(roll::RollScene::new()));
         Self {
-            scenes,
-            active_scene: Scenes::Sheet,
-            show_help: false,
-            should_close: false,
+            state: SheetState {
+                name: "Character".to_string(),
+                ..Default::default()
+            },
+            scene_stack: vec![sheet_view()],
         }
     }
 
@@ -203,6 +118,36 @@ impl App {
         }
         Ok(())
     }
+    fn handle(&mut self, event: Event) -> HandleResult {
+        if let Event::Key(evt) = event {
+            if evt.kind == KeyEventKind::Press {
+                return match evt.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.position =
+                            self.layout.up(self.position, &self.state);
+                        HandleResult::Consume
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.position =
+                            self.layout.down(self.position, &self.state);
+                        HandleResult::Consume
+                    }
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        self.position =
+                            self.layout.left(self.position, &self.state);
+                        HandleResult::Consume
+                    }
+                    KeyCode::Right | KeyCode::Char('l') => {
+                        self.position =
+                            self.layout.right(self.position, &self.state);
+                        HandleResult::Consume
+                    }
+                    _ => HandleResult::Default,
+                };
+            }
+        }
+        HandleResult::Default
+    }
 
     fn handle_key_press(&mut self, code: KeyCode) {
         match code {
@@ -226,7 +171,9 @@ impl App {
 
 fn main() -> std::io::Result<()> {
     let mut term = ratatui::init();
+    crossterm::execute!(std::io::stdout(), crossterm::cursor::Hide).ok();
     let result = App::new().run(&mut term);
     ratatui::restore();
+    crossterm::execute!(std::io::stdout(), crossterm::cursor::Show).ok();
     result
 }

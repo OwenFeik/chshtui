@@ -1,13 +1,46 @@
 use ratatui::{
     Frame,
     crossterm::event::{Event, KeyCode, KeyEventKind},
-    layout::{Constraint, Direction, Layout, Position, Rect},
+    layout::{Constraint, Direction, Position, Rect},
 };
 
 use crate::HandleResult;
 
 /// Application state type, reference provided to elements during rendering.
 pub type State = crate::SheetState;
+
+/// A scene is a full-screen (potentially floating) view of the application.
+/// A scene is expected to track non-application global state internally and
+/// update it appropriately based on user into.
+pub trait Scene {
+    /// Returns a mutable reference to the scene's layout for rendering to the
+    /// screen.
+    fn layout(&self) -> &mut Layout;
+
+    /// Handle user input entered while the scene is active. Should return
+    /// [HandleResult::Consume] if the input was used to update state, or
+    /// [HandleResult::Default] if the parent context should handle the event.
+    ///
+    /// The default implementation ignores all events except keypresses and
+    /// delegates keypresses to [Scene::handle_key_press].
+    fn handle(&mut self, event: Event) -> HandleResult {
+        if let Event::Key(key_event) = event {
+            if key_event.kind == KeyEventKind::Press {
+                return self.handle_key_press(key_event.code);
+            }
+        }
+        HandleResult::Default
+    }
+
+    /// Handle a key press while the scene was active. If the keypress is
+    /// used by the scene, [HandleResult::Consume] should be returned.
+    /// Otherwise [HandleResult::Default] can be returned to delegate handling
+    /// to the parent context.
+    ///
+    /// Navigation with arrows/hjkl and exit with q are handled by the global
+    /// context automatically.
+    fn handle_key_press(&mut self, key: KeyCode) -> HandleResult;
+}
 
 /// Element dimension constraints.
 pub struct Dims {
@@ -73,35 +106,6 @@ pub trait ElGroup {
     /// by y_offset lines from the top of this element. Return the index of
     /// that child element within this group.
     fn child_at_y(&self, state: &State, y_offset: u16) -> usize;
-}
-
-/// Trait for floating modal views (such as field editors).
-pub trait Modal {
-    /// Render this modal onto the frame. Modals are expected to render on top
-    /// of existing content, so [ratatui::widgets::Clear] should be used to
-    /// clear the area before rendering the modal.
-    fn render(&self, frame: &mut Frame);
-
-    /// Handle user input entered while the modal is active. Should return
-    /// [HandleResult::Consume] if the input was used to update state, or
-    /// [HandleResult::Default] if the parent context should handle the event.
-    ///
-    /// The default implementation ignores all events except keypresses and
-    /// delegates keypresses to [Modal::handle_key_press].
-    fn handle(&mut self, event: Event) -> HandleResult {
-        if let Event::Key(key_event) = event {
-            if key_event.kind == KeyEventKind::Press {
-                return self.handle_key_press(key_event.code);
-            }
-        }
-        HandleResult::Default
-    }
-
-    /// Handle a key press while the modal was active. If the keypress is
-    /// used by the modal, [HandleResult::Consume] should be returned.
-    /// Otherwise [HandleResult::Default] can be returned to delegate handling
-    /// to the parent context.
-    fn handle_key_press(&mut self, key: KeyCode) -> HandleResult;
 }
 
 /// Elements which can appear in view columns. Each element is either a simple
@@ -185,8 +189,8 @@ impl Column {
 
     /// Returns a ratatui layout for this column to lay out child elements for
     /// rendering.
-    fn layout(&self, state: &State) -> Layout {
-        Layout::new(
+    fn layout(&self, state: &State) -> ratatui::layout::Layout {
+        ratatui::layout::Layout::new(
             Direction::Vertical,
             self.elements.iter().map(|e| e.dimensions(state).y),
         )
@@ -284,7 +288,7 @@ pub type SelectedEl = (usize, usize);
 
 /// View of the application state. Handles rendering the ratatui TUI based on
 /// the current state and the provided elements.
-pub struct View {
+pub struct Layout {
     /// Frame dimensions of last frame, used to handle navigation.
     last_area: Rect,
 
@@ -292,7 +296,7 @@ pub struct View {
     columns: Vec<Column>,
 }
 
-impl View {
+impl Layout {
     /// Create a new empty view, with a single default column and no elements.
     pub fn new() -> Self {
         Self {
@@ -302,11 +306,25 @@ impl View {
     }
 
     /// Calculate ratatui layout for the view's columns.
-    fn layout(&self, state: &State) -> Layout {
-        Layout::new(
+    fn layout(&self, state: &State) -> ratatui::layout::Layout {
+        ratatui::layout::Layout::new(
             Direction::Horizontal,
             self.columns.iter().map(|e| e.width(state)),
         )
+    }
+
+    /// Calculate minimum width of the layout.
+    fn width(&self, state: &State) -> u16 {
+        let mut width = 0;
+        for col in &self.columns {
+            match col.width(state) {
+                Constraint::Min(w)
+                | Constraint::Max(w)
+                | Constraint::Length(w) => width += w,
+                _ => {}
+            }
+        }
+        width
     }
 
     /// Iterator across pairs of (column, area) for rendering or position
