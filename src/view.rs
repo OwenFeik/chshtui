@@ -15,7 +15,7 @@ pub type State = crate::SheetState;
 pub trait Scene {
     /// Returns a mutable reference to the scene's layout for rendering to the
     /// screen.
-    fn layout(&self) -> &mut Layout;
+    fn layout(&mut self) -> &mut Layout;
 
     /// Handle user input entered while the scene is active. Should return
     /// [HandleResult::Consume] if the input was used to update state, or
@@ -286,6 +286,27 @@ impl Column {
 /// selected children.
 pub type SelectedEl = (usize, usize);
 
+/// A movement around a layout.
+pub enum Navigation {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl Navigation {
+    /// Return the navigation the provided keycode maps to, if any.
+    pub fn from_key_code(code: KeyCode) -> Option<Navigation> {
+        match code {
+            KeyCode::Up | KeyCode::Char('k') => Some(Self::Up),
+            KeyCode::Down | KeyCode::Char('j') => Some(Self::Down),
+            KeyCode::Left | KeyCode::Char('h') => Some(Self::Left),
+            KeyCode::Right | KeyCode::Char('l') => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+
 /// View of the application state. Handles rendering the ratatui TUI based on
 /// the current state and the provided elements.
 pub struct Layout {
@@ -354,18 +375,34 @@ impl Layout {
         (col, row)
     }
 
+    /// Move the provided current position in the direction indicated by the
+    /// provided navigation.
+    pub fn navigate(
+        &self,
+        state: &State,
+        current: SelectedEl,
+        nav: Navigation,
+    ) -> SelectedEl {
+        match nav {
+            Navigation::Up => self.up(current, state),
+            Navigation::Down => self.down(current, state),
+            Navigation::Left => self.left(current, state),
+            Navigation::Right => self.right(current, state),
+        }
+    }
+
     /// Move the selection up one element.
-    pub fn up(&self, (col, row): SelectedEl, state: &State) -> SelectedEl {
+    fn up(&self, (col, row): SelectedEl, state: &State) -> SelectedEl {
         self.clamp_selected((col, row.saturating_sub(1)), state)
     }
 
     /// Move the selection down one element.
-    pub fn down(&self, (col, row): SelectedEl, state: &State) -> SelectedEl {
+    fn down(&self, (col, row): SelectedEl, state: &State) -> SelectedEl {
         self.clamp_selected((col, row + 1), state)
     }
 
     /// Move the selection left one column.
-    pub fn left(&self, (col, row): SelectedEl, state: &State) -> SelectedEl {
+    fn left(&self, (col, row): SelectedEl, state: &State) -> SelectedEl {
         let layout: Vec<(&Column, Rect)> =
             self.iter_layout(state, self.last_area).collect();
         let y = if let Some((current_column, current_area)) = layout.get(col) {
@@ -385,7 +422,7 @@ impl Layout {
     }
 
     /// Move the selection right one column.
-    pub fn right(&self, (col, row): SelectedEl, state: &State) -> SelectedEl {
+    fn right(&self, (col, row): SelectedEl, state: &State) -> SelectedEl {
         let layout: Vec<(&Column, Rect)> =
             self.iter_layout(state, self.last_area).collect();
         let y = if let Some((current_column, current_area)) = layout.get(col) {

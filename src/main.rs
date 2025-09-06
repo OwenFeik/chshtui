@@ -1,16 +1,13 @@
-use std::collections::HashMap;
-
 use ratatui::{
     crossterm::{
         self,
         event::{Event, KeyCode, KeyEventKind},
     },
     prelude::*,
-    widgets::{Block, Clear, Paragraph},
 };
 
 mod els;
-mod roll;
+// mod roll;
 mod scenes;
 mod stats;
 mod view;
@@ -22,19 +19,9 @@ struct SheetState {
     skills: stats::Skills,
 }
 
-fn sheet_view() -> view::Scene {
-    let mut v = view::Scene::new();
-    stats::Stat::STATS
-        .iter()
-        .for_each(|s| v.add_el(Box::new(els::StatEl::new(*s))));
-    v.add_group(Box::new(els::SkillsEl));
-    v.add_column();
-    v.add_el(Box::new(els::NameEl));
-    v
-}
-
 #[derive(Eq, PartialEq)]
 enum HandleResult {
+    Close,
     Consume,
     Default,
 }
@@ -56,7 +43,10 @@ impl App {
                 name: "Character".to_string(),
                 ..Default::default()
             },
-            scene_stack: vec![sheet_view()],
+            scene_stack: vec![SceneStackItem {
+                scene: Box::new(scenes::SheetScene::new()),
+                position: (0, 0),
+            }],
         }
     }
 
@@ -64,7 +54,7 @@ impl App {
         &mut self,
         term: &mut ratatui::DefaultTerminal,
     ) -> std::io::Result<()> {
-        while !self.should_close {
+        while !self.scene_stack.is_empty() {
             term.draw(|frame| self.draw(frame))?;
             self.handle_events()?;
         }
@@ -72,100 +62,67 @@ impl App {
     }
 
     fn draw(&mut self, frame: &mut Frame) {
-        let Some(scene) = self.scenes.get_mut(&self.active_scene) else {
-            return;
-        };
-
-        scene.draw(frame);
-
-        if self.show_help {
-            let entries = scene.help();
-            let key_len =
-                entries.iter().map(|e| e.key.len()).max().unwrap_or(0);
-            let lines = entries
-                .iter()
-                .map(|e| format!("{0:<1$}    {2}", e.key, key_len, e.desc))
-                .map(|s| Line::from(s))
-                .collect::<Vec<Line>>();
-            let paragraph = Paragraph::new(lines)
-                .block(Block::bordered().title("help"))
-                .style(Style::default().bg(Color::Black));
-
-            let area = frame.area().inner(Margin::new(4, 2));
-            frame.render_widget(Clear, area);
-            frame.render_widget(paragraph, area);
+        for item in self.scene_stack.iter_mut() {
+            item.scene
+                .layout()
+                .render(frame, &self.state, item.position);
         }
     }
 
     fn handle_events(&mut self) -> std::io::Result<()> {
         // N.B. blocks until an event occurs.
         let event = ratatui::crossterm::event::read()?;
-        let outcome = self
-            .scenes
-            .get_mut(&self.active_scene)
-            .map(|scene| scene.handle(event.clone()))
-            .unwrap_or(HandleResult::Consume);
-
+        let outcome = self.active_scene_mut().scene.handle(event.clone());
         match outcome {
-            HandleResult::Consume => {}
-            HandleResult::Default => {
-                if let Event::Key(evt) = event {
-                    if evt.kind == KeyEventKind::Press {
-                        self.handle_key_press(evt.code);
-                    }
-                }
+            HandleResult::Close => {
+                self.scene_stack.pop();
             }
+            HandleResult::Consume => {}
+            HandleResult::Default => self.handle(event),
         }
         Ok(())
     }
-    fn handle(&mut self, event: Event) -> HandleResult {
+
+    fn handle(&mut self, event: Event) {
         if let Event::Key(evt) = event {
             if evt.kind == KeyEventKind::Press {
-                return match evt.code {
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        self.position =
-                            self.layout.up(self.position, &self.state);
-                        HandleResult::Consume
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        self.position =
-                            self.layout.down(self.position, &self.state);
-                        HandleResult::Consume
-                    }
-                    KeyCode::Left | KeyCode::Char('h') => {
-                        self.position =
-                            self.layout.left(self.position, &self.state);
-                        HandleResult::Consume
-                    }
-                    KeyCode::Right | KeyCode::Char('l') => {
-                        self.position =
-                            self.layout.right(self.position, &self.state);
-                        HandleResult::Consume
-                    }
-                    _ => HandleResult::Default,
-                };
+                self.handle_key_press(evt.code);
             }
         }
-        HandleResult::Default
     }
 
     fn handle_key_press(&mut self, code: KeyCode) {
-        match code {
-            KeyCode::Char('h') => self.show_help = true,
-            KeyCode::Char('q') => {
-                if self.show_help {
-                    self.show_help = false;
-                } else if self.active_scene == Scenes::Sheet {
-                    self.should_close = true;
-                } else {
-                    self.active_scene = Scenes::Sheet;
-                }
-            }
-            KeyCode::Char('r') => {
-                self.active_scene = Scenes::Roll;
-            }
-            _ => (),
+        if let Some(nav) = view::Navigation::from_key_code(code) {
+            let old_position = self.active_scene().position;
+            let new_position = self
+                .scene_stack
+                .last_mut()
+                .unwrap()
+                .scene
+                .layout()
+                .navigate(&self.state, old_position, nav);
+            self.active_scene_mut().position = new_position;
+            return;
         }
+
+        match code {
+            KeyCode::Char('q') => {
+                self.scene_stack.pop();
+            }
+            _ => {}
+        }
+    }
+
+    /// Return the top item from the scene stack.
+    fn active_scene(&self) -> &SceneStackItem {
+        // We exit when the scene stack is empty, so this unwrap is always
+        // valid.
+        self.scene_stack.last().unwrap()
+    }
+
+    /// Return a mutable reference to the top of the scene stack.
+    fn active_scene_mut(&mut self) -> &mut SceneStackItem {
+        self.scene_stack.last_mut().unwrap()
     }
 }
 
