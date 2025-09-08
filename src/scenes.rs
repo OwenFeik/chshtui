@@ -1,6 +1,9 @@
 use ratatui::crossterm::event::KeyCode;
 
-use crate::{HandleResult, els, stats, view};
+use crate::{
+    HandleResult, els, stats,
+    view::{self, Scene},
+};
 
 pub struct SheetScene {
     layout: view::Layout,
@@ -34,15 +37,18 @@ pub struct SkillModal {
     skill: String,
 }
 
-impl Scene for SkillModal {
+impl SkillModal {
     pub fn new(skill: &str) -> Self {
         let mut layout = view::Layout::new();
+        layout.add_el();
         Self {
             layout,
             skill: skill.to_string(),
         }
     }
+}
 
+impl Scene for SkillModal {
     fn layout(&mut self) -> &mut view::Layout {
         &mut self.layout
     }
