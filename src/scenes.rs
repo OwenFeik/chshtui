@@ -2,7 +2,7 @@ use ratatui::crossterm::event::KeyCode;
 
 use crate::{
     HandleResult, els, stats,
-    view::{self, Scene},
+    view::{self, Scene, State},
 };
 
 pub struct SheetScene {
@@ -38,9 +38,9 @@ pub struct SkillModal {
 }
 
 impl SkillModal {
-    pub fn new(skill: &str) -> Self {
+    pub fn new(skill: &str, state: &State) -> Self {
         let mut layout = view::Layout::new();
-        layout.add_el();
+        layout.add_el(Box::new(els::SkillProficiencyEditor::new(skill, state)));
         Self {
             layout,
             skill: skill.to_string(),

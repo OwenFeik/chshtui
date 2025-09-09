@@ -64,35 +64,13 @@ impl Default for Stats {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Proficiency {
     Untrained,
     Trained,
     Expert,
     Master,
     Legendary,
-}
-
-impl Proficiency {
-    pub fn render(&self) -> Line {
-        const LAYOUT: &[Proficiency] = &[
-            Proficiency::Trained,
-            Proficiency::Expert,
-            Proficiency::Master,
-            Proficiency::Legendary,
-        ];
-
-        let mut spans: Vec<Span> = Vec::new();
-        for prof in LAYOUT {
-            let c = format!("{:?}", prof).chars().next().unwrap().to_string();
-            if prof == self {
-                spans.push(c.bold().to_string().into());
-            } else {
-                spans.push(c.into());
-            }
-        }
-        Line::default().spans(spans)
-    }
 }
 
 pub struct Skill {
@@ -114,7 +92,7 @@ impl Skill {
 pub struct Skills(pub Vec<Skill>);
 
 impl Skills {
-    fn lookup(&self, name: &str) -> Option<&Skill> {
+    pub fn lookup(&self, name: &str) -> Option<&Skill> {
         self.0.iter().find(|s| s.name == name)
     }
 }
