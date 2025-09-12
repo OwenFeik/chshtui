@@ -13,9 +13,17 @@ pub type State = crate::SheetState;
 /// A scene is expected to track non-application global state internally and
 /// update it appropriately based on user into.
 pub trait Scene {
-    /// Returns a mutable reference to the scene's layout for rendering to the
-    /// screen.
-    fn layout(&mut self) -> &mut Layout;
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        state: &State,
+        selected: SelectedEl,
+    ) -> Rect {
+        self.layout().render(frame, state, _);
+    }
+
+    /// Returns a reference to the scene's layout for navigation or rendering.
+    fn layout(&self) -> &Layout;
 
     /// Handle user input entered while the scene is active. Should return
     /// [HandleResult::Consume] if the input was used to update state, or
@@ -73,6 +81,11 @@ pub trait ElSimp {
         state: &State,
         selected: bool,
     );
+
+    /// Handle this element being selected.
+    fn handle_select(&self, state: &State) -> HandleResult {
+        HandleResult::Default
+    }
 }
 
 /// Trait for grouped elements, which are rendered as a single element but
@@ -92,6 +105,11 @@ pub trait ElGroup {
         state: &State,
         selected: Option<usize>,
     );
+
+    /// Handle a child of this element being selected by the user.
+    fn handle_select(&self, state: &State, selected: usize) -> HandleResult {
+        HandleResult::Default
+    }
 
     /// Return the number of child elements in this group, for selection
     /// handling.
@@ -235,6 +253,23 @@ impl Column {
         }
     }
 
+    /// Submit selection on the element at the provided selected index in this
+    /// column, returning the result from that element.
+    fn select(&self, state: &State, selected: usize) -> HandleResult {
+        let mut selected = selected;
+        for element in &self.elements {
+            let child_count = element.child_count(state);
+            if selected < child_count {
+                return match element {
+                    El::Simple(el) => el.handle_select(state),
+                    El::Group(gp) => gp.handle_select(state, selected),
+                };
+            }
+            selected = selected.wrapping_sub(child_count);
+        }
+        HandleResult::Default
+    }
+
     /// Count the number of selectable elements in this column.
     fn child_count(&self, state: &State) -> usize {
         self.elements.iter().map(|e| e.child_count(state)).sum()
@@ -310,9 +345,6 @@ impl Navigation {
 /// View of the application state. Handles rendering the ratatui TUI based on
 /// the current state and the provided elements.
 pub struct Layout {
-    /// Frame dimensions of last frame, used to handle navigation.
-    last_area: Rect,
-
     /// Layout columns.
     columns: Vec<Column>,
 }
@@ -321,7 +353,6 @@ impl Layout {
     /// Create a new empty view, with a single default column and no elements.
     pub fn new() -> Self {
         Self {
-            last_area: Rect::new(0, 0, 0, 0),
             columns: vec![Column::new()],
         }
     }
@@ -376,9 +407,11 @@ impl Layout {
     }
 
     /// Move the provided current position in the direction indicated by the
-    /// provided navigation.
+    /// provided navigation. Current area occupied by this layout required to
+    /// calculate relative positions of elements
     pub fn navigate(
         &self,
+        area: Rect,
         state: &State,
         current: SelectedEl,
         nav: Navigation,
@@ -386,8 +419,8 @@ impl Layout {
         match nav {
             Navigation::Up => self.up(current, state),
             Navigation::Down => self.down(current, state),
-            Navigation::Left => self.left(current, state),
-            Navigation::Right => self.right(current, state),
+            Navigation::Left => self.left(current, state, area),
+            Navigation::Right => self.right(current, state, area),
         }
     }
 
@@ -402,9 +435,14 @@ impl Layout {
     }
 
     /// Move the selection left one column.
-    fn left(&self, (col, row): SelectedEl, state: &State) -> SelectedEl {
+    fn left(
+        &self,
+        (col, row): SelectedEl,
+        state: &State,
+        area: Rect,
+    ) -> SelectedEl {
         let layout: Vec<(&Column, Rect)> =
-            self.iter_layout(state, self.last_area).collect();
+            self.iter_layout(state, area).collect();
         let y = if let Some((current_column, current_area)) = layout.get(col) {
             current_column.child_y(*current_area, state, row)
         } else {
@@ -422,9 +460,14 @@ impl Layout {
     }
 
     /// Move the selection right one column.
-    fn right(&self, (col, row): SelectedEl, state: &State) -> SelectedEl {
+    fn right(
+        &self,
+        (col, row): SelectedEl,
+        state: &State,
+        area: Rect,
+    ) -> SelectedEl {
         let layout: Vec<(&Column, Rect)> =
-            self.iter_layout(state, self.last_area).collect();
+            self.iter_layout(state, area).collect();
         let y = if let Some((current_column, current_area)) = layout.get(col) {
             current_column.child_y(*current_area, state, row)
         } else {
@@ -441,13 +484,28 @@ impl Layout {
         self.clamp_selected((new_col, new_row), state)
     }
 
+    /// Select the currently highlighted element, returning the handle result
+    /// from that element.
+    pub fn select(
+        &self,
+        state: &State,
+        (col, row): SelectedEl,
+    ) -> HandleResult {
+        if let Some(column) = self.columns.get(col) {
+            column.select(state, row)
+        } else {
+            HandleResult::Default
+        }
+    }
+
     /// Render the view into the provided frame based on the state,
     /// highlighting the selected element.
     pub fn render(
-        &mut self,
+        &self,
         frame: &mut Frame,
+        area: Rect,
         state: &State,
-        (col, row): (usize, usize),
+        (col, row): SelectedEl,
     ) {
         self.last_area = frame.area();
         let areas = self.layout(state).split(self.last_area);

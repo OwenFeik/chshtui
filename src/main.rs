@@ -19,9 +19,9 @@ struct SheetState {
     skills: stats::Skills,
 }
 
-#[derive(Eq, PartialEq)]
 enum HandleResult {
     Close,
+    Open(Box<dyn view::Scene>),
     Consume,
     Default,
 }
@@ -29,6 +29,15 @@ enum HandleResult {
 struct SceneStackItem {
     scene: Box<dyn view::Scene>,
     position: view::SelectedEl,
+}
+
+impl SceneStackItem {
+    fn new(scene: Box<dyn view::Scene>) -> Self {
+        Self {
+            scene,
+            position: (0, 0),
+        }
+    }
 }
 
 struct App {
@@ -43,10 +52,9 @@ impl App {
                 name: "Character".to_string(),
                 ..Default::default()
             },
-            scene_stack: vec![SceneStackItem {
-                scene: Box::new(scenes::SheetScene::new()),
-                position: (0, 0),
-            }],
+            scene_stack: vec![SceneStackItem::new(Box::new(
+                scenes::SheetScene::new(),
+            ))],
         }
     }
 
@@ -73,14 +81,24 @@ impl App {
         // N.B. blocks until an event occurs.
         let event = ratatui::crossterm::event::read()?;
         let outcome = self.active_scene_mut().scene.handle(event.clone());
-        match outcome {
+        if matches!(outcome, HandleResult::Default) {
+            self.handle(event);
+        } else {
+            self.process_handle_result(outcome);
+        }
+        Ok(())
+    }
+
+    fn process_handle_result(&mut self, res: HandleResult) {
+        match res {
             HandleResult::Close => {
                 self.scene_stack.pop();
             }
-            HandleResult::Consume => {}
-            HandleResult::Default => self.handle(event),
+            HandleResult::Open(scene) => {
+                self.scene_stack.push(SceneStackItem::new(scene))
+            }
+            HandleResult::Consume | HandleResult::Default => {}
         }
-        Ok(())
     }
 
     fn handle(&mut self, event: Event) {
@@ -108,6 +126,17 @@ impl App {
         match code {
             KeyCode::Char('q') => {
                 self.scene_stack.pop();
+            }
+            KeyCode::Enter => {
+                let pos = self.active_scene().position;
+                let res = self
+                    .scene_stack
+                    .last_mut()
+                    .unwrap()
+                    .scene
+                    .layout()
+                    .select(&self.state, pos);
+                self.process_handle_result(res);
             }
             _ => {}
         }

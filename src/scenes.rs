@@ -49,7 +49,7 @@ impl SkillModal {
 }
 
 impl Scene for SkillModal {
-    fn layout(&mut self) -> &mut view::Layout {
+    fn layout(&self) -> &mut view::Layout {
         &mut self.layout
     }
 

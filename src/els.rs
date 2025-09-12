@@ -1,16 +1,15 @@
 use ratatui::{
     Frame,
-    crossterm::event::KeyCode,
     layout::{Constraint, Rect},
     style::{Color, Stylize},
-    text::{Line, Span, ToText},
+    text::{Line, Span},
     widgets::{Block, Cell, Paragraph, Row, Table},
 };
 
 use crate::{
-    HandleResult,
+    HandleResult, scenes,
     stats::{self, Stat},
-    view::{self, Dims, ElGroup, ElSimp, Scene, State},
+    view::{Dims, ElGroup, ElSimp, State},
 };
 
 /// Style the provided widget based on its selection state.
@@ -131,6 +130,15 @@ impl ElGroup for SkillsEl {
         frame.render_widget(widget, area);
     }
 
+    fn handle_select(&self, state: &State, selected: usize) -> HandleResult {
+        if let Some(skill) = state.skills.0.get(selected) {
+            let modal = scenes::SkillModal::new(&skill.name, state);
+            HandleResult::Open(Box::new(modal))
+        } else {
+            HandleResult::Default
+        }
+    }
+
     fn child_count(&self, state: &State) -> usize {
         state.skills.0.len()
     }
@@ -147,19 +155,12 @@ impl ElGroup for SkillsEl {
 
 pub struct SkillProficiencyEditor {
     skill: String,
-    proficiency: stats::Proficiency,
 }
 
 impl SkillProficiencyEditor {
     pub fn new(skill: &str, state: &State) -> Self {
-        let proficiency = state
-            .skills
-            .lookup(skill)
-            .map(|s| s.proficiency)
-            .unwrap_or(stats::Proficiency::Untrained);
         Self {
             skill: skill.to_string(),
-            proficiency,
         }
     }
 }
@@ -176,13 +177,19 @@ impl ElSimp for SkillProficiencyEditor {
         &self,
         frame: &mut Frame,
         area: Rect,
-        _state: &State,
+        state: &State,
         _selected: bool,
     ) {
+        let proficiency = state
+            .skills
+            .lookup(&self.skill)
+            .map(|s| s.proficiency)
+            .unwrap_or(stats::Proficiency::Untrained);
         let widget = Paragraph::new(vec![
             Line::from(self.skill.as_str()).centered(),
-            render_proficiency(self.proficiency).centered(),
-        ]);
+            render_proficiency(proficiency).centered(),
+        ])
+        .block(Block::bordered());
 
         frame.render_widget(widget, area);
     }
@@ -198,7 +205,7 @@ fn render_proficiency<'a>(proficiency: stats::Proficiency) -> Line<'a> {
 
     let mut spans: Vec<Span> = Vec::new();
     for prof in LAYOUT {
-        let c = format!("{:?}", prof).chars().next().unwrap().to_string();
+        let c = format!("{prof:?}").chars().next().unwrap().to_string();
         if *prof == proficiency {
             spans.push(c.bold().to_string().into());
         } else {
