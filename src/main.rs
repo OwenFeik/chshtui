@@ -28,6 +28,7 @@ enum HandleResult {
 
 struct SceneStackItem {
     scene: Box<dyn view::Scene>,
+    dimensions: Rect,
     position: view::SelectedEl,
 }
 
@@ -35,6 +36,7 @@ impl SceneStackItem {
     fn new(scene: Box<dyn view::Scene>) -> Self {
         Self {
             scene,
+            dimensions: Default::default(),
             position: (0, 0),
         }
     }
@@ -71,9 +73,8 @@ impl App {
 
     fn draw(&mut self, frame: &mut Frame) {
         for item in self.scene_stack.iter_mut() {
-            item.scene
-                .layout()
-                .render(frame, &self.state, item.position);
+            item.dimensions =
+                item.scene.render(frame, &self.state, item.position);
         }
     }
 
@@ -111,14 +112,13 @@ impl App {
 
     fn handle_key_press(&mut self, code: KeyCode) {
         if let Some(nav) = view::Navigation::from_key_code(code) {
-            let old_position = self.active_scene().position;
-            let new_position = self
-                .scene_stack
-                .last_mut()
-                .unwrap()
-                .scene
-                .layout()
-                .navigate(&self.state, old_position, nav);
+            let active = self.active_scene();
+            let new_position = self.active_scene().scene.layout().navigate(
+                active.dimensions,
+                &self.state,
+                active.position,
+                nav,
+            );
             self.active_scene_mut().position = new_position;
             return;
         }

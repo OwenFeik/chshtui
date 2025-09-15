@@ -1,10 +1,5 @@
 use std::collections::HashMap;
 
-use ratatui::{
-    style::Stylize,
-    text::{Line, Span},
-};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Stat {
     Strength,

@@ -19,7 +19,8 @@ pub trait Scene {
         state: &State,
         selected: SelectedEl,
     ) -> Rect {
-        self.layout().render(frame, state, _);
+        self.layout().render(frame, frame.area(), state, selected);
+        frame.area()
     }
 
     /// Returns a reference to the scene's layout for navigation or rendering.
@@ -66,6 +67,12 @@ impl Dims {
     }
 }
 
+impl Into<(Constraint, Constraint)> for Dims {
+    fn into(self) -> (Constraint, Constraint) {
+        (self.x, self.y)
+    }
+}
+
 /// Trait for simple elements, single elements selected as a whole.
 pub trait ElSimp {
     /// Return dimension constraints for this element.
@@ -83,7 +90,7 @@ pub trait ElSimp {
     );
 
     /// Handle this element being selected.
-    fn handle_select(&self, state: &State) -> HandleResult {
+    fn handle_select(&self, _state: &State) -> HandleResult {
         HandleResult::Default
     }
 }
@@ -107,7 +114,7 @@ pub trait ElGroup {
     );
 
     /// Handle a child of this element being selected by the user.
-    fn handle_select(&self, state: &State, selected: usize) -> HandleResult {
+    fn handle_select(&self, _state: &State, _selected: usize) -> HandleResult {
         HandleResult::Default
     }
 
@@ -507,8 +514,7 @@ impl Layout {
         state: &State,
         (col, row): SelectedEl,
     ) {
-        self.last_area = frame.area();
-        let areas = self.layout(state).split(self.last_area);
+        let areas = self.layout(state).split(area);
         for (i, (&area, column)) in
             areas.iter().zip(self.columns.iter()).enumerate()
         {
@@ -537,4 +543,20 @@ impl Layout {
             elements: Vec::new(),
         });
     }
+}
+
+/// Return a box centred within the provided rect, satisfying the provided
+/// width and height constraints.
+pub fn centre_in(area: Rect, width: Constraint, height: Constraint) -> Rect {
+    let col = ratatui::layout::Layout::new(
+        Direction::Vertical,
+        [Constraint::Fill(1), height, Constraint::Fill(1)],
+    );
+    let [_above, area, _below] = col.areas(area);
+    let row = ratatui::layout::Layout::new(
+        Direction::Horizontal,
+        [Constraint::Fill(1), width, Constraint::Fill(1)],
+    );
+    let [_left, area, _right] = row.areas(area);
+    area
 }
