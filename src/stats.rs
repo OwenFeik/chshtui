@@ -68,6 +68,30 @@ pub enum Proficiency {
     Legendary,
 }
 
+impl Proficiency {
+    pub fn increase(&self) -> Proficiency {
+        use Proficiency::*;
+        match self {
+            Untrained => Trained,
+            Trained => Expert,
+            Expert => Master,
+            Master => Legendary,
+            Legendary => Legendary,
+        }
+    }
+
+    pub fn decrease(&self) -> Proficiency {
+        use Proficiency::*;
+        match self {
+            Untrained => Untrained,
+            Trained => Untrained,
+            Expert => Trained,
+            Master => Expert,
+            Legendary => Master,
+        }
+    }
+}
+
 pub struct Skill {
     pub name: String,
     stat: Stat,
@@ -89,6 +113,10 @@ pub struct Skills(pub Vec<Skill>);
 impl Skills {
     pub fn lookup(&self, name: &str) -> Option<&Skill> {
         self.0.iter().find(|s| s.name == name)
+    }
+
+    pub fn lookup_mut(&mut self, name: &str) -> Option<&mut Skill> {
+        self.0.iter_mut().find(|s| s.name == name)
     }
 }
 

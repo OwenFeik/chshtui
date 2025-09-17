@@ -81,7 +81,8 @@ impl App {
     fn handle_events(&mut self) -> std::io::Result<()> {
         // N.B. blocks until an event occurs.
         let event = ratatui::crossterm::event::read()?;
-        let outcome = self.active_scene_mut().scene.handle(event.clone());
+        let active = self.scene_stack.last_mut().unwrap();
+        let outcome = active.scene.handle(event.clone(), &mut self.state);
         if matches!(outcome, HandleResult::Default) {
             self.handle(event);
         } else {

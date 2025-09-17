@@ -1,3 +1,5 @@
+use std::{cell::Cell, rc::Rc};
+
 use ratatui::{
     crossterm::event::KeyCode,
     layout::{Constraint, Rect},
@@ -31,7 +33,11 @@ impl view::Scene for SheetScene {
         &self.layout
     }
 
-    fn handle_key_press(&mut self, _key: KeyCode) -> HandleResult {
+    fn handle_key_press(
+        &mut self,
+        _key: KeyCode,
+        _state: &mut State,
+    ) -> HandleResult {
         HandleResult::Default
     }
 }
@@ -41,11 +47,19 @@ pub struct SkillModal {
     width: Constraint,
     height: Constraint,
     skill: String,
+    prof: Rc<Cell<stats::Proficiency>>,
 }
 
 impl SkillModal {
     pub fn new(skill: &str, state: &State) -> Self {
-        let editor = els::SkillProficiencyEditor::new(skill, state);
+        let prof = Rc::new(Cell::new(
+            state
+                .skills
+                .lookup(skill)
+                .map(|s| s.proficiency)
+                .unwrap_or(stats::Proficiency::Untrained),
+        ));
+        let editor = els::SkillProficiencyEditor::new(skill, prof.clone());
         let (width, height) = editor.dimensions().into();
         let mut layout = view::Layout::new();
         layout.add_el(Box::new(editor));
@@ -54,6 +68,7 @@ impl SkillModal {
             width,
             height,
             skill: skill.to_string(),
+            prof,
         }
     }
 }
@@ -75,7 +90,28 @@ impl Scene for SkillModal {
         area
     }
 
-    fn handle_key_press(&mut self, key: KeyCode) -> HandleResult {
-        HandleResult::Default
+    fn handle_key_press(
+        &mut self,
+        key: KeyCode,
+        state: &mut State,
+    ) -> HandleResult {
+        if key == KeyCode::Enter {
+            if let Some(skill) = state.skills.lookup_mut(&self.skill) {
+                skill.proficiency = self.prof.get();
+            }
+            return HandleResult::Close;
+        }
+
+        match view::Navigation::from_key_code(key) {
+            Some(view::Navigation::Up) => {
+                self.prof.set(self.prof.get().decrease());
+                HandleResult::Consume
+            }
+            Some(view::Navigation::Down) => {
+                self.prof.set(self.prof.get().increase());
+                HandleResult::Consume
+            }
+            _ => HandleResult::Default,
+        }
     }
 }

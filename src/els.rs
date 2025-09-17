@@ -155,12 +155,17 @@ impl ElGroup for SkillsEl {
 
 pub struct SkillProficiencyEditor {
     skill: String,
+    prof: std::rc::Rc<std::cell::Cell<stats::Proficiency>>,
 }
 
 impl SkillProficiencyEditor {
-    pub fn new(skill: &str, state: &State) -> Self {
+    pub fn new(
+        skill: &str,
+        prof: std::rc::Rc<std::cell::Cell<stats::Proficiency>>,
+    ) -> Self {
         Self {
             skill: skill.to_string(),
+            prof,
         }
     }
 }
@@ -177,40 +182,30 @@ impl ElSimp for SkillProficiencyEditor {
         &self,
         frame: &mut Frame,
         area: Rect,
-        state: &State,
+        _state: &State,
         _selected: bool,
     ) {
-        let proficiency = state
-            .skills
-            .lookup(&self.skill)
-            .map(|s| s.proficiency)
-            .unwrap_or(stats::Proficiency::Untrained);
-        let widget = Paragraph::new(vec![
-            Line::from(self.skill.as_str()).centered(),
-            render_proficiency(proficiency).centered(),
-        ])
-        .block(Block::bordered());
+        const ENTRIES: &[stats::Proficiency] = &[
+            stats::Proficiency::Untrained,
+            stats::Proficiency::Trained,
+            stats::Proficiency::Expert,
+            stats::Proficiency::Master,
+            stats::Proficiency::Legendary,
+        ];
 
-        frame.render_widget(widget, area);
+        let proficiency = self.prof.get();
+
+        let table = Table::default()
+            .rows(ENTRIES.iter().map(|p| {
+                style_selected(Row::new([format!("{p:?}")]), *p == proficiency)
+            }))
+            .block(Block::bordered().title(self.skill.as_str()));
+
+        frame.render_widget(table, area);
     }
 }
 
 fn render_proficiency<'a>(proficiency: stats::Proficiency) -> Line<'a> {
-    const LAYOUT: &[stats::Proficiency] = &[
-        stats::Proficiency::Trained,
-        stats::Proficiency::Expert,
-        stats::Proficiency::Master,
-        stats::Proficiency::Legendary,
-    ];
-
-    let mut spans: Vec<Span> = Vec::new();
-    for prof in LAYOUT {
-        let c = format!("{prof:?}").chars().next().unwrap().to_string();
-        if *prof == proficiency {
-            spans.push(c.bold().to_string().into());
-        } else {
-            spans.push(c.into());
-        }
-    }
-    Line::default().spans(spans)
+    let char = format!("{proficiency:?}").chars().next().unwrap();
+    char.to_string().into()
 }

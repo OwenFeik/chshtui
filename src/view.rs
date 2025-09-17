@@ -32,10 +32,10 @@ pub trait Scene {
     ///
     /// The default implementation ignores all events except keypresses and
     /// delegates keypresses to [Scene::handle_key_press].
-    fn handle(&mut self, event: Event) -> HandleResult {
+    fn handle(&mut self, event: Event, state: &mut State) -> HandleResult {
         if let Event::Key(key_event) = event {
             if key_event.kind == KeyEventKind::Press {
-                return self.handle_key_press(key_event.code);
+                return self.handle_key_press(key_event.code, state);
             }
         }
         HandleResult::Default
@@ -48,7 +48,11 @@ pub trait Scene {
     ///
     /// Navigation with arrows/hjkl and exit with q are handled by the global
     /// context automatically.
-    fn handle_key_press(&mut self, key: KeyCode) -> HandleResult;
+    fn handle_key_press(
+        &mut self,
+        key: KeyCode,
+        state: &mut State,
+    ) -> HandleResult;
 }
 
 /// Element dimension constraints.
@@ -67,9 +71,15 @@ impl Dims {
     }
 }
 
-impl Into<(Constraint, Constraint)> for Dims {
-    fn into(self) -> (Constraint, Constraint) {
-        (self.x, self.y)
+impl From<(Constraint, Constraint)> for Dims {
+    fn from((x, y): (Constraint, Constraint)) -> Dims {
+        Dims { x, y }
+    }
+}
+
+impl From<Dims> for (Constraint, Constraint) {
+    fn from(value: Dims) -> Self {
+        (value.x, value.y)
     }
 }
 
@@ -166,14 +176,14 @@ impl El {
 fn compare_constraints(a: &Constraint, b: &Constraint) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     match (a, b) {
-        (Constraint::Min(a), Constraint::Min(b)) => a.cmp(&b),
-        (Constraint::Max(a), Constraint::Max(b)) => a.cmp(&b),
-        (Constraint::Length(a), Constraint::Length(b)) => a.cmp(&b),
-        (Constraint::Percentage(a), Constraint::Percentage(b)) => a.cmp(&b),
+        (Constraint::Min(a), Constraint::Min(b)) => a.cmp(b),
+        (Constraint::Max(a), Constraint::Max(b)) => a.cmp(b),
+        (Constraint::Length(a), Constraint::Length(b)) => a.cmp(b),
+        (Constraint::Percentage(a), Constraint::Percentage(b)) => a.cmp(b),
         (Constraint::Ratio(a1, a2), Constraint::Ratio(b1, b2)) => {
             (*a1 as f32 / *a2 as f32).total_cmp(&(*b1 as f32 / *b2 as f32))
         }
-        (Constraint::Fill(a), Constraint::Fill(b)) => a.cmp(&b),
+        (Constraint::Fill(a), Constraint::Fill(b)) => a.cmp(b),
         (Constraint::Max(_), _) => Ordering::Greater,
         (_, Constraint::Max(_)) => Ordering::Less,
         (Constraint::Length(_), _) => Ordering::Greater,
@@ -229,7 +239,7 @@ impl Column {
         area: Rect,
     ) -> impl Iterator<Item = (&El, Rect)> {
         let areas = self.layout(state).split(area).to_vec();
-        self.elements.iter().zip(areas.into_iter())
+        self.elements.iter().zip(areas)
     }
 
     /// Render the column into the provided area based on the current state.
@@ -394,7 +404,7 @@ impl Layout {
         area: Rect,
     ) -> impl Iterator<Item = (&Column, Rect)> {
         let areas = self.layout(state).split(area).to_vec();
-        self.columns.iter().zip(areas.into_iter())
+        self.columns.iter().zip(areas)
     }
 
     /// Clamp the provided selected element to fall into valid selection
