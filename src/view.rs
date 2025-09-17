@@ -56,6 +56,7 @@ pub trait Scene {
 }
 
 /// Element dimension constraints.
+#[derive(Clone, Copy)]
 pub struct Dims {
     x: Constraint,
     y: Constraint,
@@ -359,11 +360,23 @@ impl Navigation {
     }
 }
 
+/// Describes how to render a layout into a frame.
+enum LayoutRenderMode {
+    /// Use the whole terminal, spacing elements out across it.
+    FullScreen,
+
+    /// Render the layout into a floating centred modal with these dimensions.
+    Modal(Dims),
+}
+
 /// View of the application state. Handles rendering the ratatui TUI based on
 /// the current state and the provided elements.
 pub struct Layout {
     /// Layout columns.
     columns: Vec<Column>,
+
+    /// Describes how to render the layout into a frame.
+    mode: LayoutRenderMode,
 }
 
 impl Layout {
@@ -371,6 +384,7 @@ impl Layout {
     pub fn new() -> Self {
         Self {
             columns: vec![Column::new()],
+            mode: LayoutRenderMode::FullScreen,
         }
     }
 
@@ -557,15 +571,15 @@ impl Layout {
 
 /// Return a box centred within the provided rect, satisfying the provided
 /// width and height constraints.
-pub fn centre_in(area: Rect, width: Constraint, height: Constraint) -> Rect {
+pub fn centre_in(area: Rect, dimensions: Dims) -> Rect {
     let col = ratatui::layout::Layout::new(
         Direction::Vertical,
-        [Constraint::Fill(1), height, Constraint::Fill(1)],
+        [Constraint::Fill(1), dimensions.y, Constraint::Fill(1)],
     );
     let [_above, area, _below] = col.areas(area);
     let row = ratatui::layout::Layout::new(
         Direction::Horizontal,
-        [Constraint::Fill(1), width, Constraint::Fill(1)],
+        [Constraint::Fill(1), dimensions.x, Constraint::Fill(1)],
     );
     let [_left, area, _right] = row.areas(area);
     area

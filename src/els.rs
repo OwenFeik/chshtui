@@ -1,8 +1,8 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Rect},
+    layout::{Alignment, Constraint, Rect},
     style::{Color, Stylize},
-    text::Line,
+    text::{Line, ToLine},
     widgets::{Block, Cell, Paragraph, Row, Table},
 };
 
@@ -11,6 +11,8 @@ use crate::{
     stats::{self, Stat},
     view::{Dims, ElGroup, ElSimp, State},
 };
+
+pub const BORDER: u16 = 2;
 
 /// Style the provided widget based on its selection state.
 fn style_selected<'a, T: 'a + Stylize<'a, T>>(widget: T, selected: bool) -> T {
@@ -169,28 +171,57 @@ impl ElGroup for SkillsEl {
     }
 }
 
+#[derive(Clone)]
+pub struct EditorState<T> {
+    shared_state: std::rc::Rc<std::cell::Cell<T>>,
+}
+
+impl<T: Copy> EditorState<T> {
+    pub fn new(initial_value: T) -> Self {
+        Self {
+            shared_state: std::rc::Rc::new(std::cell::Cell::new(initial_value)),
+        }
+    }
+
+    pub fn get(&self) -> T {
+        self.shared_state.get()
+    }
+
+    pub fn set(&self, value: T) {
+        self.shared_state.set(value);
+    }
+
+    pub fn update(&self, effect: impl FnOnce(T) -> T) {
+        self.shared_state.set(effect(self.shared_state.get()));
+    }
+}
+
 pub struct SkillProficiencyEditor {
     skill: String,
-    prof: std::rc::Rc<std::cell::Cell<stats::Proficiency>>,
+    state: EditorState<stats::Proficiency>,
 }
 
 impl SkillProficiencyEditor {
     pub fn new(
         skill: &str,
-        prof: std::rc::Rc<std::cell::Cell<stats::Proficiency>>,
-    ) -> Self {
-        Self {
-            skill: skill.to_string(),
-            prof,
-        }
+        prof: stats::Proficiency,
+    ) -> (EditorState<stats::Proficiency>, Self) {
+        let state = EditorState::new(prof);
+        (
+            state.clone(),
+            Self {
+                skill: skill.to_string(),
+                state,
+            },
+        )
     }
 }
 
 impl ElSimp for SkillProficiencyEditor {
     fn dimensions(&self) -> Dims {
         Dims::new(
-            Constraint::Min(self.skill.len() as u16 + 2),
-            Constraint::Min(4),
+            Constraint::Min(self.skill.len() as u16 + BORDER),
+            Constraint::Length(stats::Proficiency::ALL.len() as u16 + BORDER),
         )
     }
 
@@ -201,23 +232,56 @@ impl ElSimp for SkillProficiencyEditor {
         _state: &State,
         _selected: bool,
     ) {
-        const ENTRIES: &[stats::Proficiency] = &[
-            stats::Proficiency::Untrained,
-            stats::Proficiency::Trained,
-            stats::Proficiency::Expert,
-            stats::Proficiency::Master,
-            stats::Proficiency::Legendary,
-        ];
-
-        let proficiency = self.prof.get();
-
+        let prof = self.state.get();
         let table = Table::default()
-            .rows(ENTRIES.iter().map(|p| {
-                style_selected(Row::new([format!("{p:?}")]), *p == proficiency)
+            .rows(stats::Proficiency::ALL.iter().map(|p| {
+                style_selected(Row::new([format!("{p:?}")]), *p == prof)
             }))
             .block(Block::bordered().title(self.skill.as_str()));
 
         frame.render_widget(table, area);
+    }
+}
+
+pub struct StatEditor {
+    stat: Stat,
+    state: EditorState<i8>,
+}
+
+impl StatEditor {
+    pub fn new(stat: Stat, initial_value: i8) -> (EditorState<i8>, Self) {
+        let state = EditorState::new(initial_value);
+        (state.clone(), Self { stat, state })
+    }
+}
+
+impl ElSimp for StatEditor {
+    fn dimensions(&self) -> Dims {
+        Dims::new(
+            Constraint::Length(6 + BORDER),
+            Constraint::Length(2 + BORDER),
+        )
+    }
+
+    fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        _state: &State,
+        _selected: bool,
+    ) {
+        let score = self.state.get();
+        let modifier = format_modifier(Stat::modifier(score));
+        let score = format!("< {score} >");
+        let widget = Paragraph::new(vec![score.to_line(), modifier.to_line()])
+            .centered()
+            .block(
+                Block::bordered()
+                    .title(self.stat.short())
+                    .title_alignment(Alignment::Center),
+            );
+
+        frame.render_widget(widget, area);
     }
 }
 

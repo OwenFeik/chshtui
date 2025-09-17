@@ -1,5 +1,3 @@
-use std::{cell::Cell, rc::Rc};
-
 use ratatui::{
     crossterm::event::KeyCode,
     layout::{Constraint, Rect},
@@ -47,31 +45,27 @@ impl view::Scene for SheetScene {
 
 pub struct SkillModal {
     layout: view::Layout,
-    width: Constraint,
-    height: Constraint,
+    dimensions: view::Dims,
     skill: String,
-    prof: Rc<Cell<stats::Proficiency>>,
+    eds: els::EditorState<stats::Proficiency>,
 }
 
 impl SkillModal {
     pub fn new(skill: &str, state: &State) -> Self {
-        let prof = Rc::new(Cell::new(
-            state
-                .skills
-                .lookup(skill)
-                .map(|s| s.proficiency)
-                .unwrap_or(stats::Proficiency::Untrained),
-        ));
-        let editor = els::SkillProficiencyEditor::new(skill, prof.clone());
+        let prof = state
+            .skills
+            .lookup(skill)
+            .map(|s| s.proficiency)
+            .unwrap_or(stats::Proficiency::Untrained);
+        let (eds, editor) = els::SkillProficiencyEditor::new(skill, prof);
         let (width, height) = editor.dimensions().into();
         let mut layout = view::Layout::new();
         layout.add_el(Box::new(editor));
         Self {
             layout,
-            width,
-            height,
+            dimensions: view::Dims::new(width, height),
             skill: skill.to_string(),
-            prof,
+            eds,
         }
     }
 }
@@ -87,7 +81,7 @@ impl Scene for SkillModal {
         state: &State,
         selected: view::SelectedEl,
     ) -> Rect {
-        let area = view::centre_in(frame.area(), self.width, self.height);
+        let area = view::centre_in(frame.area(), self.dimensions);
         frame.render_widget(Clear, area);
         self.layout.render(frame, area, state, selected);
         area
@@ -100,21 +94,48 @@ impl Scene for SkillModal {
     ) -> HandleResult {
         if key == KeyCode::Enter {
             if let Some(skill) = state.skills.lookup_mut(&self.skill) {
-                skill.proficiency = self.prof.get();
+                skill.proficiency = self.eds.get();
             }
             return HandleResult::Close;
         }
 
         match view::Navigation::from_key_code(key) {
             Some(view::Navigation::Up) => {
-                self.prof.set(self.prof.get().decrease());
+                self.eds.update(|p| p.decrease());
                 HandleResult::Consume
             }
             Some(view::Navigation::Down) => {
-                self.prof.set(self.prof.get().increase());
+                self.eds.update(|p| p.increase());
                 HandleResult::Consume
             }
             _ => HandleResult::Default,
         }
     }
+}
+
+pub struct StatModal {
+    layout: view::Layout,
+    dimensions: view::Dims,
+    stat: stats::Stat,
+    eds: els::EditorState<i8>,
+}
+
+impl StatModal {
+    pub fn new(stat: stats::Stat, state: &State) -> Self {
+        let score = state.stats.score(stat);
+        let (eds, editor) = els::StatEditor::new(stat, score);
+        let dimensions = editor.dimensions();
+        let mut layout = view::Layout::new();
+        layout.add_el(Box::new(editor));
+        Self {
+            layout,
+            dimensions,
+            stat,
+            eds,
+        }
+    }
+}
+
+impl Scene for StatModal {
+    fn layout(&self) -> &view::Layout {}
 }

@@ -71,6 +71,14 @@ pub enum Proficiency {
 }
 
 impl Proficiency {
+    pub const ALL: &[Proficiency] = &[
+        Proficiency::Untrained,
+        Proficiency::Trained,
+        Proficiency::Expert,
+        Proficiency::Master,
+        Proficiency::Legendary,
+    ];
+
     pub fn increase(&self) -> Proficiency {
         use Proficiency::*;
         match self {
