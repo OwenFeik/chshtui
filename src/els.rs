@@ -2,12 +2,12 @@ use ratatui::{
     Frame,
     layout::{Constraint, Rect},
     style::{Color, Stylize},
-    text::{Line, Span},
+    text::Line,
     widgets::{Block, Cell, Paragraph, Row, Table},
 };
 
 use crate::{
-    HandleResult, scenes,
+    HandleResult, els, scenes,
     stats::{self, Stat},
     view::{Dims, ElGroup, ElSimp, State},
 };
@@ -21,10 +21,16 @@ fn style_selected<'a, T: 'a + Stylize<'a, T>>(widget: T, selected: bool) -> T {
     }
 }
 
-/// Element which displays character name.
-pub struct NameEl;
+/// Displays some simple text.
+pub struct TextEl(Box<dyn Fn(&State) -> String>);
 
-impl ElSimp for NameEl {
+impl TextEl {
+    pub fn new<F: Fn(&State) -> String + 'static>(f: F) -> Self {
+        Self(Box::new(f))
+    }
+}
+
+impl ElSimp for TextEl {
     fn dimensions(&self) -> Dims {
         Dims::new(Constraint::Fill(1), Constraint::Max(3))
     }
@@ -36,8 +42,8 @@ impl ElSimp for NameEl {
         state: &State,
         selected: bool,
     ) {
-        let widget =
-            Paragraph::new(state.name.as_str()).block(Block::bordered());
+        let text = (self.0)(state);
+        let widget = Paragraph::new(text).block(Block::bordered());
         frame.render_widget(style_selected(widget, selected), area);
     }
 }
@@ -53,7 +59,7 @@ impl StatEl {
 
 impl ElSimp for StatEl {
     fn dimensions(&self) -> Dims {
-        Dims::new(Constraint::Min(4), Constraint::Min(4))
+        Dims::new(Constraint::Min(4), Constraint::Length(4))
     }
 
     fn render(
@@ -66,13 +72,7 @@ impl ElSimp for StatEl {
         let stat = self.0;
         let value = state.stats.score(stat);
         let modifier = Stat::modifier(value);
-
-        let modtext = if modifier < 0 {
-            modifier.to_string()
-        } else {
-            format!("+{modifier}")
-        };
-
+        let modtext = format_modifier(modifier);
         let paragraph = Paragraph::new(vec![
             Line::from(value.to_string()),
             Line::from(modtext),
@@ -103,7 +103,7 @@ impl ElGroup for SkillsEl {
 
         Dims::new(
             Constraint::Min(min_width as u16),
-            Constraint::Min(state.skills.0.len() as u16 + 2),
+            Constraint::Length(state.skills.0.len() as u16 + 2),
         )
     }
 
@@ -116,15 +116,31 @@ impl ElGroup for SkillsEl {
     ) {
         let widget = Table::new(
             state.skills.0.iter().enumerate().map(|(i, skill)| {
+                let proficiency = skill.proficiency;
+                let pstr = if proficiency == stats::Proficiency::Untrained {
+                    String::from(" ")
+                } else {
+                    format!("{proficiency:?}")
+                        .chars()
+                        .next()
+                        .unwrap()
+                        .to_string()
+                };
+
                 let row = Row::new([
                     Cell::new(skill.name.as_str()),
-                    Cell::new(
-                        render_proficiency(skill.proficiency).right_aligned(),
-                    ),
+                    Cell::new(skill.stat.short()),
+                    Cell::new(pstr),
+                    Cell::new(els::format_modifier(skill.modifier(state))),
                 ]);
                 style_selected(row, selected == Some(i))
             }),
-            [Constraint::Fill(1), Constraint::Min(4)],
+            [
+                Constraint::Fill(1),
+                Constraint::Max(3),
+                Constraint::Max(1),
+                Constraint::Max(3),
+            ],
         )
         .block(Block::bordered());
         frame.render_widget(widget, area);
@@ -205,7 +221,10 @@ impl ElSimp for SkillProficiencyEditor {
     }
 }
 
-fn render_proficiency<'a>(proficiency: stats::Proficiency) -> Line<'a> {
-    let char = format!("{proficiency:?}").chars().next().unwrap();
-    char.to_string().into()
+pub fn format_modifier(modifier: i64) -> String {
+    if modifier < 0 {
+        modifier.to_string()
+    } else {
+        format!("+{modifier}")
+    }
 }

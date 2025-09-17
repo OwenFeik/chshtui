@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::SheetState;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Stat {
     Strength,
@@ -90,11 +92,22 @@ impl Proficiency {
             Legendary => Master,
         }
     }
+
+    fn modifier(&self, level: i64) -> i64 {
+        use Proficiency::*;
+        match self {
+            Untrained => 0,
+            Trained => 2 + level,
+            Expert => 4 + level,
+            Master => 6 + level,
+            Legendary => 8 + level,
+        }
+    }
 }
 
 pub struct Skill {
     pub name: String,
-    stat: Stat,
+    pub stat: Stat,
     pub proficiency: Proficiency,
 }
 
@@ -105,6 +118,10 @@ impl Skill {
             stat,
             proficiency: Proficiency::Untrained,
         }
+    }
+
+    pub fn modifier(&self, sheet: &SheetState) -> i64 {
+        sheet.stats.modifier(self.stat) + self.proficiency.modifier(sheet.level)
     }
 }
 

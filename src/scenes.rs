@@ -23,7 +23,10 @@ impl SheetScene {
             .for_each(|s| layout.add_el(Box::new(els::StatEl::new(*s))));
         layout.add_group(Box::new(els::SkillsEl));
         layout.add_column();
-        layout.add_el(Box::new(els::NameEl));
+        layout.add_el(Box::new(els::TextEl::new(|s| s.name.clone())));
+        layout.add_el(Box::new(els::TextEl::new(|s| {
+            format!("Level {}", s.level)
+        })));
         Self { layout }
     }
 }

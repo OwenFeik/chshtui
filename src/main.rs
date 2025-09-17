@@ -15,6 +15,7 @@ mod view;
 #[derive(Default)]
 struct SheetState {
     name: String,
+    level: i64,
     stats: stats::Stats,
     skills: stats::Skills,
 }
