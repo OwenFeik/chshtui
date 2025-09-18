@@ -6,6 +6,7 @@ use ratatui::{
     prelude::*,
 };
 
+mod editors;
 mod els;
 // mod roll;
 mod scenes;

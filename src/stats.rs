@@ -32,7 +32,7 @@ impl Stat {
     }
 
     pub fn modifier(value: i64) -> i64 {
-        (value - 10) / 2
+        (value - 10).div_euclid(2)
     }
 }
 
@@ -117,6 +117,12 @@ impl Proficiency {
     }
 }
 
+impl Default for Proficiency {
+    fn default() -> Self {
+        Self::Untrained
+    }
+}
+
 pub struct Skill {
     pub name: String,
     pub stat: Stat,
@@ -169,5 +175,38 @@ impl Default for Skills {
             Skill::new("Survival", Stat::Wisdom),
             Skill::new("Thievery", Stat::Dexterity),
         ])
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_stat_modifier() {
+        let cases = [
+            (1, -5),
+            (6, -2),
+            (8, -1),
+            (9, -1),
+            (10, 0),
+            (11, 0),
+            (12, 1),
+            (13, 1),
+            (14, 2),
+            (15, 2),
+            (16, 3),
+            (17, 3),
+            (18, 4),
+            (19, 4),
+            (20, 5),
+            (21, 5),
+            (22, 6),
+            (25, 7),
+        ];
+
+        for (score, expected) in cases {
+            assert_eq!(Stat::modifier(score), expected);
+        }
     }
 }
