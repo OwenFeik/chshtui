@@ -1,8 +1,4 @@
-use ratatui::{
-    crossterm::event::KeyCode,
-    layout::{Constraint, Rect},
-    widgets::Clear,
-};
+use ratatui::crossterm::event::KeyCode;
 
 use crate::{
     HandleResult, els, stats,
@@ -45,7 +41,6 @@ impl view::Scene for SheetScene {
 
 pub struct SkillModal {
     layout: view::Layout,
-    dimensions: view::Dims,
     skill: String,
     eds: els::EditorState<stats::Proficiency>,
 }
@@ -62,8 +57,7 @@ impl SkillModal {
         let mut layout = view::Layout::new();
         layout.add_el(Box::new(editor));
         Self {
-            layout,
-            dimensions: view::Dims::new(width, height),
+            layout: layout.modal(view::Dims::new(width, height)),
             skill: skill.to_string(),
             eds,
         }
@@ -73,18 +67,6 @@ impl SkillModal {
 impl Scene for SkillModal {
     fn layout(&self) -> &view::Layout {
         &self.layout
-    }
-
-    fn render(
-        &mut self,
-        frame: &mut ratatui::Frame,
-        state: &State,
-        selected: view::SelectedEl,
-    ) -> Rect {
-        let area = view::centre_in(frame.area(), self.dimensions);
-        frame.render_widget(Clear, area);
-        self.layout.render(frame, area, state, selected);
-        area
     }
 
     fn handle_key_press(
@@ -115,9 +97,8 @@ impl Scene for SkillModal {
 
 pub struct StatModal {
     layout: view::Layout,
-    dimensions: view::Dims,
     stat: stats::Stat,
-    eds: els::EditorState<i8>,
+    eds: els::EditorState<i64>,
 }
 
 impl StatModal {
@@ -128,8 +109,7 @@ impl StatModal {
         let mut layout = view::Layout::new();
         layout.add_el(Box::new(editor));
         Self {
-            layout,
-            dimensions,
+            layout: layout.modal(dimensions),
             stat,
             eds,
         }
@@ -137,5 +117,30 @@ impl StatModal {
 }
 
 impl Scene for StatModal {
-    fn layout(&self) -> &view::Layout {}
+    fn layout(&self) -> &view::Layout {
+        &self.layout
+    }
+
+    fn handle_key_press(
+        &mut self,
+        key: KeyCode,
+        state: &mut State,
+    ) -> HandleResult {
+        if key == KeyCode::Enter {
+            state.stats.set_score(self.stat, self.eds.get());
+            return HandleResult::Close;
+        }
+
+        match view::Navigation::from_key_code(key) {
+            Some(view::Navigation::Left) => {
+                self.eds.update(|s| s - 1);
+                HandleResult::Consume
+            }
+            Some(view::Navigation::Right) => {
+                self.eds.update(|s| s + 1);
+                HandleResult::Consume
+            }
+            _ => HandleResult::Default,
+        }
+    }
 }

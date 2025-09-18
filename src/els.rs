@@ -85,6 +85,10 @@ impl ElSimp for StatEl {
             .block(Block::bordered().title(stat.short()));
         frame.render_widget(widget, area);
     }
+
+    fn handle_select(&self, state: &State) -> HandleResult {
+        HandleResult::Open(Box::new(scenes::StatModal::new(self.0, state)))
+    }
 }
 
 /// Element that renders a table of all skills present in the state.
@@ -192,7 +196,7 @@ impl<T: Copy> EditorState<T> {
     }
 
     pub fn update(&self, effect: impl FnOnce(T) -> T) {
-        self.shared_state.set(effect(self.shared_state.get()));
+        self.set(effect(self.get()));
     }
 }
 
@@ -245,11 +249,11 @@ impl ElSimp for SkillProficiencyEditor {
 
 pub struct StatEditor {
     stat: Stat,
-    state: EditorState<i8>,
+    state: EditorState<i64>,
 }
 
 impl StatEditor {
-    pub fn new(stat: Stat, initial_value: i8) -> (EditorState<i8>, Self) {
+    pub fn new(stat: Stat, initial_value: i64) -> (EditorState<i64>, Self) {
         let state = EditorState::new(initial_value);
         (state.clone(), Self { stat, state })
     }

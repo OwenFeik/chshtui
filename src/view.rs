@@ -2,6 +2,7 @@ use ratatui::{
     Frame,
     crossterm::event::{Event, KeyCode, KeyEventKind},
     layout::{Constraint, Direction, Position, Rect},
+    widgets::Clear,
 };
 
 use crate::HandleResult;
@@ -13,16 +14,6 @@ pub type State = crate::SheetState;
 /// A scene is expected to track non-application global state internally and
 /// update it appropriately based on user into.
 pub trait Scene {
-    fn render(
-        &mut self,
-        frame: &mut Frame,
-        state: &State,
-        selected: SelectedEl,
-    ) -> Rect {
-        self.layout().render(frame, frame.area(), state, selected);
-        frame.area()
-    }
-
     /// Returns a reference to the scene's layout for navigation or rendering.
     fn layout(&self) -> &Layout;
 
@@ -50,8 +41,8 @@ pub trait Scene {
     /// context automatically.
     fn handle_key_press(
         &mut self,
-        key: KeyCode,
-        state: &mut State,
+        _key: KeyCode,
+        _state: &mut State,
     ) -> HandleResult;
 }
 
@@ -388,6 +379,12 @@ impl Layout {
         }
     }
 
+    /// Convert this layout into a modal with the provided dimensions.
+    pub fn modal(mut self, dimensions: Dims) -> Self {
+        self.mode = LayoutRenderMode::Modal(dimensions);
+        self
+    }
+
     /// Calculate ratatui layout for the view's columns.
     fn layout(&self, state: &State) -> ratatui::layout::Layout {
         ratatui::layout::Layout::new(
@@ -534,17 +531,22 @@ impl Layout {
     pub fn render(
         &self,
         frame: &mut Frame,
-        area: Rect,
         state: &State,
         (col, row): SelectedEl,
-    ) {
-        let areas = self.layout(state).split(area);
-        for (i, (&area, column)) in
-            areas.iter().zip(self.columns.iter()).enumerate()
-        {
+    ) -> Rect {
+        let area = match self.mode {
+            LayoutRenderMode::FullScreen => frame.area(),
+            LayoutRenderMode::Modal(dims) => centre_in(frame.area(), dims),
+        };
+
+        frame.render_widget(Clear, area);
+
+        for (i, (column, area)) in self.iter_layout(state, area).enumerate() {
             let selected_index = if col == i { Some(row) } else { None };
             column.render(frame, area, state, selected_index);
         }
+
+        area
     }
 
     /// Add an element to the last column of the view.

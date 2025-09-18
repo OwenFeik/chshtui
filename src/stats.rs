@@ -31,15 +31,19 @@ impl Stat {
         }
     }
 
-    pub fn modifier(value: i8) -> i64 {
-        ((value - 10) / 2) as i64
+    pub fn modifier(value: i64) -> i64 {
+        (value - 10) / 2
     }
 }
 
-pub struct Stats(HashMap<Stat, i8>);
+pub struct Stats(HashMap<Stat, i64>);
 
 impl Stats {
-    pub fn score(&self, stat: Stat) -> i8 {
+    pub fn set_score(&mut self, stat: Stat, score: i64) {
+        self.0.insert(stat, score);
+    }
+
+    pub fn score(&self, stat: Stat) -> i64 {
         self.0.get(&stat).copied().unwrap_or(10)
     }
 

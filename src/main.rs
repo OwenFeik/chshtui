@@ -75,7 +75,9 @@ impl App {
     fn draw(&mut self, frame: &mut Frame) {
         for item in self.scene_stack.iter_mut() {
             item.dimensions =
-                item.scene.render(frame, &self.state, item.position);
+                item.scene
+                    .layout()
+                    .render(frame, &self.state, item.position);
         }
     }
 
