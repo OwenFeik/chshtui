@@ -27,11 +27,23 @@ pub fn style_selected<'a, T: 'a + Stylize<'a, T>>(
 }
 
 /// Displays some simple text.
-pub struct TextEl(Box<dyn Fn(&State) -> String>);
+pub struct TextEl {
+    title: String,
+    get: &'static dyn Fn(&State) -> String,
+    set: &'static dyn Fn(String, &mut State),
+}
 
 impl TextEl {
-    pub fn new<F: Fn(&State) -> String + 'static>(f: F) -> Self {
-        Self(Box::new(f))
+    pub fn new<G: Fn(&State) -> String, S: Fn(String, &mut State)>(
+        title: &str,
+        get: &'static G,
+        set: &'static S,
+    ) -> Self {
+        Self {
+            title: title.to_string(),
+            get,
+            set,
+        }
     }
 }
 
@@ -47,9 +59,19 @@ impl ElSimp for TextEl {
         state: &State,
         selected: bool,
     ) {
-        let text = (self.0)(state);
-        let widget = Paragraph::new(text).block(Block::bordered());
+        let text = (self.get)(state);
+        let widget = Paragraph::new(text)
+            .block(Block::bordered().title(self.title.as_str()));
         frame.render_widget(style_selected(widget, selected), area);
+    }
+
+    fn handle_select(&self, state: &State) -> HandleResult {
+        let modal = editors::StringEditorModal::new(
+            &self.title,
+            (self.get)(state),
+            Box::new(|value, state| (self.set)(value, state)),
+        );
+        HandleResult::Open(Box::new(modal))
     }
 }
 

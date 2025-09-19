@@ -2,7 +2,7 @@ use ratatui::crossterm::event::KeyCode;
 
 use crate::{
     HandleResult, els, stats,
-    view::{self, ElSimp, Scene, State},
+    view::{self, State},
 };
 
 pub struct SheetScene {
@@ -17,10 +17,16 @@ impl SheetScene {
             .for_each(|s| layout.add_el(Box::new(els::StatEl::new(*s))));
         layout.add_group(Box::new(els::SkillsEl));
         layout.add_column();
-        layout.add_el(Box::new(els::TextEl::new(|s| s.name.clone())));
-        layout.add_el(Box::new(els::TextEl::new(|s| {
-            format!("Level {}", s.level)
-        })));
+        layout.add_el(Box::new(els::TextEl::new(
+            "Name",
+            &|s| s.name.clone(),
+            &|v, s| s.name = v,
+        )));
+        layout.add_el(Box::new(els::TextEl::new(
+            "Level",
+            &|s| format!("Level {}", s.level),
+            &|v, s| s.level = v.parse().unwrap_or(s.level),
+        )));
         Self { layout }
     }
 }

@@ -1,7 +1,7 @@
 use ratatui::{
     Frame,
     crossterm::event::{Event, KeyCode, KeyEventKind},
-    layout::{Alignment, Constraint, Margin, Rect},
+    layout::{self, Alignment, Constraint, Margin, Rect},
     text::ToLine,
     widgets::{Block, Paragraph, Row, Table},
 };
@@ -28,8 +28,12 @@ impl<T: Clone + Default> EditorState<T> {
 
     fn get(&self) -> T {
         let value = self.shared_state.take();
-        self.shared_state.set(value.clone());
+        self.set(value.clone());
         value
+    }
+
+    fn set(&self, value: T) {
+        self.shared_state.set(value);
     }
 
     fn update(&self, effect: impl FnOnce(T) -> T) {
@@ -57,17 +61,45 @@ impl ElSimp for StringEditor {
         _state: &State,
         _selected: bool,
     ) {
-        let widget = Paragraph::new(self.input.value())
+        let widget = Paragraph::new(self.value.get())
             .block(Block::bordered().title(self.title.as_str()));
         frame.render_widget(widget, area);
     }
 }
 
-struct StringEditorModal {
-    layout: &view::Layout,
+pub struct StringEditorModal {
+    layout: view::Layout,
     apply_to_state: EditorSubmitHandler<String>,
     value: EditorState<String>,
     input: tui_input::Input,
+}
+
+impl StringEditorModal {
+    pub fn new(
+        title: &str,
+        initial_value: String,
+        handler: EditorSubmitHandler<String>,
+    ) -> Self {
+        let input = tui_input::Input::new(initial_value.clone());
+        let value = EditorState::new(initial_value);
+        let el = StringEditor {
+            title: title.to_string(),
+            value: value.clone(),
+        };
+        let mut layout = view::Layout::new();
+        layout.add_el(Box::new(el));
+        let layout = layout.modal(Dims::new(
+            Constraint::Min(24),
+            Constraint::Length(1 + BORDER),
+        ));
+
+        Self {
+            layout,
+            apply_to_state: handler,
+            value,
+            input,
+        }
+    }
 }
 
 impl Scene for StringEditorModal {
@@ -76,18 +108,22 @@ impl Scene for StringEditorModal {
     }
 
     fn handle(&mut self, event: Event, state: &mut State) -> HandleResult {
-        if let Event::Key(evt) = event {
-            if evt.kind == KeyEventKind::Press {
-                if matches!(
-                    self.handle_key_press(evt.code, state),
-                    HandleResult::Consume
-                ) {
-                    return HandleResult::Consume;
-                }
+        if let Event::Key(evt) = event
+            && evt.kind == KeyEventKind::Press
+        {
+            let result = self.handle_key_press(evt.code, state);
+            if !matches!(result, HandleResult::Default) {
+                return result;
             }
         }
+
         match self.input.handle_event(&event) {
-            Some(_) => return HandleResult::Consume,
+            Some(changes) => {
+                if changes.value {
+                    self.value.set(self.input.value().to_string());
+                }
+                HandleResult::Consume
+            }
             None => HandleResult::Default,
         }
     }
@@ -97,11 +133,13 @@ impl Scene for StringEditorModal {
         key: KeyCode,
         state: &mut State,
     ) -> HandleResult {
-        if matches!(key, KeyCode::Enter) {
-            (self.apply_to_state)(self.value.get(), state);
-            HandleResult::Consume
-        } else {
-            HandleResult::Default
+        match key {
+            KeyCode::Enter => {
+                (self.apply_to_state)(self.value.get(), state);
+                HandleResult::Close
+            }
+            KeyCode::Esc => HandleResult::Close,
+            _ => HandleResult::Default,
         }
     }
 }
