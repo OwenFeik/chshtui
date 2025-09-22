@@ -219,11 +219,10 @@ impl ElSimp for SkillProficiencyEditor {
         _selected: bool,
     ) {
         let prof = self.state.get();
-        let table = Table::default()
-            .rows(stats::Proficiency::ALL.iter().map(|p| {
+        let table =
+            Table::default().rows(stats::Proficiency::ALL.iter().map(|p| {
                 els::style_selected(Row::new([format!("{p:?}")]), *p == prof)
-            }))
-            .block(Block::bordered().title(self.skill.as_str()));
+            }));
 
         frame.render_widget(table, area);
     }
