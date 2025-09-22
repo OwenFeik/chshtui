@@ -1,7 +1,7 @@
 use ratatui::crossterm::event::KeyCode;
 
 use crate::{
-    HandleResult, els, stats,
+    HandleResult, editors, els, stats,
     view::{self, State},
 };
 
@@ -20,12 +20,24 @@ impl SheetScene {
         layout.add_el(Box::new(els::TextEl::new(
             "Name",
             &|s| s.name.clone(),
-            &|v, s| s.name = v,
+            &|s| {
+                Box::new(editors::StringEditorModal::new(
+                    "Name",
+                    s.name.clone(),
+                    Box::new(|value, state| state.name = value),
+                ))
+            },
         )));
         layout.add_el(Box::new(els::TextEl::new(
             "Level",
             &|s| format!("Level {}", s.level),
-            &|v, s| s.level = v.parse().unwrap_or(s.level),
+            &|s| {
+                Box::new(editors::IntEditorModal::new(
+                    "Level",
+                    s.level,
+                    Box::new(|level, state| state.level = level),
+                ))
+            },
         )));
         Self { layout }
     }

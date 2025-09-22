@@ -1,9 +1,9 @@
 use ratatui::{
     Frame,
     crossterm::event::{Event, KeyCode, KeyEventKind},
-    layout::{self, Alignment, Constraint, Margin, Rect},
+    layout::{Constraint, Rect},
     text::ToLine,
-    widgets::{Block, Paragraph, Row, Table},
+    widgets::{Block, Row, Table},
 };
 use tui_input::backend::crossterm::EventHandler;
 
@@ -42,10 +42,51 @@ impl<T: Clone + Default> EditorState<T> {
     }
 }
 
+struct CellDisplay<T: std::fmt::Display + Default + Clone> {
+    shared_state: EditorState<T>,
+    display_func: Box<dyn Fn(T) -> String>,
+}
+
+impl<T: std::fmt::Display + Default + Clone> CellDisplay<T> {
+    fn new(
+        shared_state: EditorState<T>,
+        display_func: &'static dyn Fn(T) -> String,
+    ) -> Self {
+        Self {
+            shared_state,
+            display_func: Box::new(display_func),
+        }
+    }
+    fn show(&self) -> String {
+        (self.display_func)(self.shared_state.get())
+    }
+}
+
+impl<T: std::fmt::Display + Default + Clone> ElSimp for CellDisplay<T> {
+    fn dimensions(&self) -> Dims {
+        Dims::new(
+            Constraint::Length(self.show().len() as u16),
+            Constraint::Length(1),
+        )
+    }
+
+    fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        _state: &State,
+        selected: bool,
+    ) {
+        frame.render_widget(
+            els::style_selected(self.show().to_line().centered(), selected),
+            area,
+        );
+    }
+}
+
 type EditorSubmitHandler<T> = Box<dyn FnMut(T, &mut State)>;
 
 struct StringEditor {
-    title: String,
     value: EditorState<String>,
 }
 
@@ -61,9 +102,7 @@ impl ElSimp for StringEditor {
         _state: &State,
         _selected: bool,
     ) {
-        let widget = Paragraph::new(self.value.get())
-            .block(Block::bordered().title(self.title.as_str()));
-        frame.render_widget(widget, area);
+        frame.render_widget(self.value.get().to_line(), area);
     }
 }
 
@@ -83,15 +122,14 @@ impl StringEditorModal {
         let input = tui_input::Input::new(initial_value.clone());
         let value = EditorState::new(initial_value);
         let el = StringEditor {
-            title: title.to_string(),
             value: value.clone(),
         };
         let mut layout = view::Layout::new();
         layout.add_el(Box::new(el));
-        let layout = layout.modal(Dims::new(
-            Constraint::Min(24),
-            Constraint::Length(1 + BORDER),
-        ));
+        let layout = layout.modal(
+            title,
+            Dims::new(Constraint::Min(24), Constraint::Length(1 + BORDER)),
+        );
 
         Self {
             layout,
@@ -209,7 +247,7 @@ impl SkillModal {
         let mut layout = view::Layout::new();
         layout.add_el(Box::new(editor));
         Self {
-            layout: layout.modal(view::Dims::new(width, height)),
+            layout: layout.modal(skill, view::Dims::new(width, height)),
             skill: skill.to_string(),
             eds,
         }
@@ -247,23 +285,22 @@ impl Scene for SkillModal {
     }
 }
 
-struct StatEditor {
-    stat: stats::Stat,
+struct IntEditor {
     state: EditorState<i64>,
 }
 
-impl StatEditor {
-    fn new(stat: stats::Stat, initial_value: i64) -> (EditorState<i64>, Self) {
+impl IntEditor {
+    fn new(initial_value: i64) -> (EditorState<i64>, Self) {
         let state = EditorState::new(initial_value);
-        (state.clone(), Self { stat, state })
+        (state.clone(), Self { state })
     }
 }
 
-impl ElSimp for StatEditor {
+impl ElSimp for IntEditor {
     fn dimensions(&self) -> Dims {
         Dims::new(
-            Constraint::Length(6 + BORDER),
-            Constraint::Length(2 + BORDER),
+            Constraint::Length(self.state.get().to_string().len() as u16 + 4),
+            Constraint::Length(1),
         )
     }
 
@@ -274,43 +311,41 @@ impl ElSimp for StatEditor {
         _state: &State,
         _selected: bool,
     ) {
-        let score = self.state.get();
-        let modifier = els::format_modifier(stats::Stat::modifier(score));
-        let score = format!("< {score} >");
-        let widget = Paragraph::new(vec![score.to_line(), modifier.to_line()])
-            .centered()
-            .block(
-                Block::bordered()
-                    .title(self.stat.short())
-                    .title_alignment(Alignment::Center),
-            );
-
-        frame.render_widget(widget, area);
+        let value = self.state.get();
+        let score = format!("< {value} >");
+        let line = score.to_line().centered();
+        frame.render_widget(line, area);
     }
 }
 
-pub struct StatModal {
+pub struct IntEditorModal {
     layout: view::Layout,
-    stat: stats::Stat,
     eds: EditorState<i64>,
+    handler: EditorSubmitHandler<i64>,
 }
 
-impl StatModal {
-    pub fn new(stat: stats::Stat, state: &State) -> Self {
-        let score = state.stats.score(stat);
-        let (eds, editor) = StatEditor::new(stat, score);
-        let dimensions = editor.dimensions();
+impl IntEditorModal {
+    pub fn new(
+        title: &str,
+        initial_value: i64,
+        handler: EditorSubmitHandler<i64>,
+    ) -> Self {
+        let (eds, editor) = IntEditor::new(initial_value);
+        let dimensions = Dims::new(
+            Constraint::Length(2 + 2 + 2 + BORDER),
+            Constraint::Length(1 + BORDER),
+        );
         let mut layout = view::Layout::new();
         layout.add_el(Box::new(editor));
         Self {
-            layout: layout.modal(dimensions),
-            stat,
+            layout: layout.modal(title, dimensions),
             eds,
+            handler,
         }
     }
 }
 
-impl Scene for StatModal {
+impl Scene for IntEditorModal {
     fn layout(&self) -> &view::Layout {
         &self.layout
     }
@@ -321,7 +356,7 @@ impl Scene for StatModal {
         state: &mut State,
     ) -> HandleResult {
         if key == KeyCode::Enter {
-            state.stats.set_score(self.stat, self.eds.get());
+            (self.handler)(self.eds.get(), state);
             return HandleResult::Close;
         }
 
@@ -337,4 +372,23 @@ impl Scene for StatModal {
             _ => HandleResult::Default,
         }
     }
+}
+
+pub fn stat_modal(stat: stats::Stat, state: &State) -> Box<dyn Scene> {
+    let score = state.stats.score(stat);
+    let mut modal = IntEditorModal::new(
+        "",
+        score,
+        Box::new(move |score, state| state.stats.set_score(stat, score)),
+    );
+    let modifier = CellDisplay::new(modal.eds.clone(), &|score| {
+        els::format_modifier(stats::Stat::modifier(score))
+    });
+    modal.layout.add_el(Box::new(modifier));
+    let dimensions = Dims::new(
+        Constraint::Length(2 + 2 + 2 + BORDER),
+        Constraint::Length(2 + BORDER),
+    );
+    modal.layout = modal.layout.modal(&stat.short(), dimensions);
+    Box::new(modal)
 }

@@ -2,14 +2,14 @@ use ratatui::{
     Frame,
     layout::{Constraint, Rect},
     style::{Color, Stylize},
-    text::Line,
+    text::{Line, ToLine},
     widgets::{Block, Cell, Paragraph, Row, Table},
 };
 
 use crate::{
     HandleResult, editors, els,
     stats::{self, Stat},
-    view::{Dims, ElGroup, ElSimp, State},
+    view::{self, Dims, ElGroup, ElSimp, State},
 };
 
 pub const BORDER: u16 = 2;
@@ -30,19 +30,22 @@ pub fn style_selected<'a, T: 'a + Stylize<'a, T>>(
 pub struct TextEl {
     title: String,
     get: &'static dyn Fn(&State) -> String,
-    set: &'static dyn Fn(String, &mut State),
+    select: &'static dyn Fn(&State) -> Box<dyn view::Scene>,
 }
 
 impl TextEl {
-    pub fn new<G: Fn(&State) -> String, S: Fn(String, &mut State)>(
+    pub fn new<
+        G: Fn(&State) -> String,
+        S: Fn(&State) -> Box<dyn view::Scene>,
+    >(
         title: &str,
         get: &'static G,
-        set: &'static S,
+        select: &'static S,
     ) -> Self {
         Self {
             title: title.to_string(),
             get,
-            set,
+            select,
         }
     }
 }
@@ -60,18 +63,13 @@ impl ElSimp for TextEl {
         selected: bool,
     ) {
         let text = (self.get)(state);
-        let widget = Paragraph::new(text)
+        let widget = Paragraph::new(style_selected(text.to_line(), selected))
             .block(Block::bordered().title(self.title.as_str()));
-        frame.render_widget(style_selected(widget, selected), area);
+        frame.render_widget(widget, area);
     }
 
     fn handle_select(&self, state: &State) -> HandleResult {
-        let modal = editors::StringEditorModal::new(
-            &self.title,
-            (self.get)(state),
-            Box::new(|value, state| (self.set)(value, state)),
-        );
-        HandleResult::Open(Box::new(modal))
+        HandleResult::Open((self.select)(state))
     }
 }
 
@@ -101,18 +99,18 @@ impl ElSimp for StatEl {
         let modifier = Stat::modifier(value);
         let modtext = format_modifier(modifier);
         let paragraph = Paragraph::new(vec![
-            Line::from(value.to_string()),
-            Line::from(modtext),
+            style_selected(Line::from(value.to_string()), selected),
+            style_selected(Line::from(modtext), selected),
         ]);
 
-        let widget = style_selected(paragraph, selected)
+        let widget = paragraph
             .centered()
             .block(Block::bordered().title(stat.short()));
         frame.render_widget(widget, area);
     }
 
     fn handle_select(&self, state: &State) -> HandleResult {
-        HandleResult::Open(Box::new(editors::StatModal::new(self.0, state)))
+        HandleResult::Open(editors::stat_modal(self.0, state))
     }
 }
 

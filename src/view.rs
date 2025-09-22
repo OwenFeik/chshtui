@@ -1,8 +1,8 @@
 use ratatui::{
     Frame,
     crossterm::event::{Event, KeyCode, KeyEventKind},
-    layout::{Constraint, Direction, Position, Rect},
-    widgets::Clear,
+    layout::{Constraint, Direction, Margin, Position, Rect},
+    widgets::{Block, Clear},
 };
 
 use crate::HandleResult;
@@ -356,8 +356,9 @@ enum LayoutRenderMode {
     /// Use the whole terminal, spacing elements out across it.
     FullScreen,
 
-    /// Render the layout into a floating centred modal with these dimensions.
-    Modal(Dims),
+    /// Render the layout into a floating centred modal with title and
+    /// dimensions.
+    Modal(String, Dims),
 }
 
 /// View of the application state. Handles rendering the ratatui TUI based on
@@ -380,8 +381,8 @@ impl Layout {
     }
 
     /// Convert this layout into a modal with the provided dimensions.
-    pub fn modal(mut self, dimensions: Dims) -> Self {
-        self.mode = LayoutRenderMode::Modal(dimensions);
+    pub fn modal(mut self, title: &str, dimensions: Dims) -> Self {
+        self.mode = LayoutRenderMode::Modal(title.to_string(), dimensions);
         self
     }
 
@@ -534,9 +535,16 @@ impl Layout {
         state: &State,
         (col, row): SelectedEl,
     ) -> Rect {
-        let area = match self.mode {
+        let area = match &self.mode {
             LayoutRenderMode::FullScreen => frame.area(),
-            LayoutRenderMode::Modal(dims) => centre_in(frame.area(), dims),
+            LayoutRenderMode::Modal(title, dims) => {
+                let area = centre_in(frame.area(), *dims);
+                frame.render_widget(
+                    Block::bordered().title(title.as_str()),
+                    area,
+                );
+                area.inner(Margin::new(1, 1))
+            }
         };
 
         frame.render_widget(Clear, area);
