@@ -3,7 +3,7 @@ use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEventKind},
     layout::{Constraint, Rect},
     text::ToLine,
-    widgets::{Block, Row, Table},
+    widgets::{Row, Table},
 };
 use tui_input::backend::crossterm::EventHandler;
 
@@ -145,7 +145,12 @@ impl Scene for StringEditorModal {
         &self.layout
     }
 
-    fn handle(&mut self, event: Event, state: &mut State) -> HandleResult {
+    fn handle(
+        &mut self,
+        event: Event,
+        state: &mut State,
+        _selected: view::SelectedEl,
+    ) -> HandleResult {
         if let Event::Key(evt) = event
             && evt.kind == KeyEventKind::Press
         {

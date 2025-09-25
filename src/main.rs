@@ -8,7 +8,7 @@ use ratatui::{
 
 mod editors;
 mod els;
-// mod roll;
+mod roll;
 mod scenes;
 mod stats;
 mod view;
@@ -86,7 +86,11 @@ impl App {
         // N.B. blocks until an event occurs.
         let event = ratatui::crossterm::event::read()?;
         let active = self.scene_stack.last_mut().unwrap();
-        let outcome = active.scene.handle(event.clone(), &mut self.state);
+        let outcome = active.scene.handle(
+            event.clone(),
+            &mut self.state,
+            active.position,
+        );
         if matches!(outcome, HandleResult::Default) {
             self.handle(event);
         } else {
@@ -131,17 +135,6 @@ impl App {
         match code {
             KeyCode::Char('q') => {
                 self.scene_stack.pop();
-            }
-            KeyCode::Enter => {
-                let pos = self.active_scene().position;
-                let res = self
-                    .scene_stack
-                    .last_mut()
-                    .unwrap()
-                    .scene
-                    .layout()
-                    .select(&self.state, pos);
-                self.process_handle_result(res);
             }
             _ => {}
         }

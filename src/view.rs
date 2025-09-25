@@ -23,7 +23,17 @@ pub trait Scene {
     ///
     /// The default implementation ignores all events except keypresses and
     /// delegates keypresses to [Scene::handle_key_press].
-    fn handle(&mut self, event: Event, state: &mut State) -> HandleResult {
+    fn handle(
+        &mut self,
+        event: Event,
+        state: &mut State,
+        selected: SelectedEl,
+    ) -> HandleResult {
+        let el_result = self.layout().handle(event.clone(), state, selected);
+        if !matches!(el_result, HandleResult::Default) {
+            return el_result;
+        }
+
         if let Event::Key(key_event) = event {
             if key_event.kind == KeyEventKind::Press {
                 return self.handle_key_press(key_event.code, state);
@@ -91,6 +101,35 @@ pub trait ElSimp {
         selected: bool,
     );
 
+    /// Handle a keystroke while this is the active element.
+    fn handle(&self, event: Event, state: &mut State) -> HandleResult {
+        if let Event::Key(key_event) = event {
+            if key_event.kind == KeyEventKind::Press {
+                return self.handle_key_press(key_event.code, state);
+            }
+        }
+        HandleResult::Default
+    }
+
+    /// Handle a key press on this element. By default, delegates to select or
+    /// roll method implementations.
+    fn handle_key_press(
+        &self,
+        code: KeyCode,
+        state: &mut State,
+    ) -> HandleResult {
+        match code {
+            KeyCode::Enter => self.handle_select(state),
+            KeyCode::Char('r') => self.handle_roll(state),
+            _ => HandleResult::Default,
+        }
+    }
+
+    /// Handle user requesting a roll from this element.
+    fn handle_roll(&self, _state: &State) -> HandleResult {
+        HandleResult::Default
+    }
+
     /// Handle this element being selected.
     fn handle_select(&self, _state: &State) -> HandleResult {
         HandleResult::Default
@@ -114,6 +153,38 @@ pub trait ElGroup {
         state: &State,
         selected: Option<usize>,
     );
+
+    /// Handle a keystroke while this is the active element.
+    fn handle(
+        &self,
+        event: Event,
+        state: &mut State,
+        selected: usize,
+    ) -> HandleResult {
+        if let Event::Key(key_event) = event {
+            if key_event.kind == KeyEventKind::Press {
+                return self.handle_key_press(key_event.code, state, selected);
+            }
+        }
+        HandleResult::Default
+    }
+
+    fn handle_key_press(
+        &self,
+        code: KeyCode,
+        state: &mut State,
+        selected: usize,
+    ) -> HandleResult {
+        match code {
+            KeyCode::Enter => self.handle_select(state, selected),
+            KeyCode::Char('r') => self.handle_roll(state, selected),
+            _ => HandleResult::Default,
+        }
+    }
+
+    fn handle_roll(&self, _state: &State, _selected: usize) -> HandleResult {
+        HandleResult::Default
+    }
 
     /// Handle a child of this element being selected by the user.
     fn handle_select(&self, _state: &State, _selected: usize) -> HandleResult {
@@ -262,16 +333,22 @@ impl Column {
         }
     }
 
-    /// Submit selection on the element at the provided selected index in this
-    /// column, returning the result from that element.
-    fn select(&self, state: &State, selected: usize) -> HandleResult {
+    /// Pass an event to handle through to the item at the provided index in
+    /// this column. Returns the result of that element handling the event, or
+    /// [HandleResult::Default] if the index is invalid.
+    fn handle(
+        &self,
+        event: Event,
+        state: &mut State,
+        selected: usize,
+    ) -> HandleResult {
         let mut selected = selected;
         for element in &self.elements {
             let child_count = element.child_count(state);
             if selected < child_count {
                 return match element {
-                    El::Simple(el) => el.handle_select(state),
-                    El::Group(gp) => gp.handle_select(state, selected),
+                    El::Simple(el) => el.handle(event, state),
+                    El::Group(gp) => gp.handle(event, state, selected),
                 };
             }
             selected = selected.wrapping_sub(child_count);
@@ -513,15 +590,16 @@ impl Layout {
         self.clamp_selected((new_col, new_row), state)
     }
 
-    /// Select the currently highlighted element, returning the handle result
-    /// from that element.
-    pub fn select(
+    /// Pass an event through to the element at the provided selection location
+    /// and return the result of handling it.
+    pub fn handle(
         &self,
-        state: &State,
+        event: Event,
+        state: &mut State,
         (col, row): SelectedEl,
     ) -> HandleResult {
         if let Some(column) = self.columns.get(col) {
-            column.select(state, row)
+            column.handle(event, state, row)
         } else {
             HandleResult::Default
         }
