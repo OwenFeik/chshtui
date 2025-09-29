@@ -71,6 +71,14 @@ impl Dims {
             y: height,
         }
     }
+
+    pub fn width(&self) -> Constraint {
+        self.x
+    }
+
+    pub fn height(&self) -> Constraint {
+        self.y
+    }
 }
 
 impl From<(Constraint, Constraint)> for Dims {
@@ -435,7 +443,11 @@ enum LayoutRenderMode {
 
     /// Render the layout into a floating centred modal with title and
     /// dimensions.
-    Modal(String, Dims),
+    Modal {
+        title: String,
+        dimensions: Dims,
+        selection: bool,
+    },
 }
 
 /// View of the application state. Handles rendering the ratatui TUI based on
@@ -458,8 +470,17 @@ impl Layout {
     }
 
     /// Convert this layout into a modal with the provided dimensions.
-    pub fn modal(mut self, title: &str, dimensions: Dims) -> Self {
-        self.mode = LayoutRenderMode::Modal(title.to_string(), dimensions);
+    pub fn modal(
+        mut self,
+        title: &str,
+        dimensions: Dims,
+        selection: bool,
+    ) -> Self {
+        self.mode = LayoutRenderMode::Modal {
+            title: title.to_string(),
+            dimensions,
+            selection,
+        };
         self
     }
 
@@ -613,22 +634,29 @@ impl Layout {
         state: &State,
         (col, row): SelectedEl,
     ) -> Rect {
-        let area = match &self.mode {
-            LayoutRenderMode::FullScreen => frame.area(),
-            LayoutRenderMode::Modal(title, dims) => {
-                let area = centre_in(frame.area(), *dims);
+        let (area, selection) = match &self.mode {
+            LayoutRenderMode::FullScreen => (frame.area(), true),
+            LayoutRenderMode::Modal {
+                title,
+                dimensions,
+                selection,
+            } => {
+                let area = centre_in(frame.area(), *dimensions);
+                frame.render_widget(Clear, area);
                 frame.render_widget(
                     Block::bordered().title(title.as_str()),
                     area,
                 );
-                area.inner(Margin::new(1, 1))
+                (area.inner(Margin::new(1, 1)), *selection)
             }
         };
 
-        frame.render_widget(Clear, area);
-
         for (i, (column, area)) in self.iter_layout(state, area).enumerate() {
-            let selected_index = if col == i { Some(row) } else { None };
+            let selected_index = if selection && col == i {
+                Some(row)
+            } else {
+                None
+            };
             column.render(frame, area, state, selected_index);
         }
 

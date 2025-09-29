@@ -75,7 +75,24 @@ pub struct Roll {
 }
 
 impl Roll {
-    fn resolve(self) -> RollOutcome {
+    pub fn new(quantity: u32, size: u32) -> Self {
+        Self {
+            quantity,
+            size,
+            suff: RollSuff::None,
+            mods: Vec::new(),
+        }
+    }
+
+    pub fn plus(mut self, amount: f64) -> Self {
+        self.mods.push(RollMod {
+            op: RollOp::Add,
+            amount,
+        });
+        self
+    }
+
+    pub fn resolve(self) -> RollOutcome {
         let mut results = Vec::new();
         for _ in 0..self.quantity.max(1) {
             results.push(rand::random_range(1..=self.size));
@@ -135,7 +152,7 @@ impl Roll {
     }
 }
 
-struct RollOutcome {
+pub struct RollOutcome {
     roll: Roll,
     results: Vec<u32>,
     value: f64,
@@ -146,7 +163,11 @@ impl RollOutcome {
         self.roll
     }
 
-    fn format_results(&self) -> String {
+    pub fn format_roll(&self) -> String {
+        self.roll.format()
+    }
+
+    pub fn format_results(&self) -> String {
         self.results
             .iter()
             .map(|v| v.to_string())
@@ -154,7 +175,7 @@ impl RollOutcome {
             .join(", ")
     }
 
-    fn format_value(&self) -> String {
+    pub fn format_value(&self) -> String {
         if self.value.fract() == 0.0 {
             format!("{}", self.value)
         } else {

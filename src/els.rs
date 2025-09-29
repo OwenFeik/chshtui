@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::{
     HandleResult, editors, els,
+    roll::{self, Roll},
     stats::{self, Stat},
     view::{self, Dims, ElGroup, ElSimp, State},
 };
@@ -112,6 +113,13 @@ impl ElSimp for StatEl {
     fn handle_select(&self, state: &State) -> HandleResult {
         HandleResult::Open(editors::stat_modal(self.0, state))
     }
+
+    fn handle_roll(&self, state: &State) -> HandleResult {
+        let modifier = state.stats.modifier(self.0);
+        let modal =
+            editors::RollModal::new(Roll::new(1, 20).plus(modifier as f64));
+        HandleResult::Open(Box::new(modal))
+    }
 }
 
 /// Element that renders a table of all skills present in the state.
@@ -184,6 +192,17 @@ impl ElGroup for SkillsEl {
         }
     }
 
+    fn handle_roll(&self, state: &State, selected: usize) -> HandleResult {
+        if let Some(skill) = state.skills.0.get(selected) {
+            let modifier = skill.modifier(state);
+            let modal =
+                editors::RollModal::new(Roll::new(1, 20).plus(modifier as f64));
+            HandleResult::Open(Box::new(modal))
+        } else {
+            HandleResult::Default
+        }
+    }
+
     fn child_count(&self, state: &State) -> usize {
         state.skills.0.len()
     }
@@ -203,5 +222,51 @@ pub fn format_modifier(modifier: i64) -> String {
         modifier.to_string()
     } else {
         format!("+{modifier}")
+    }
+}
+
+pub struct RollDisplay {
+    dimensions: Dims,
+    roll_text: String,
+    result_text: String,
+}
+
+impl RollDisplay {
+    pub fn new(outcome: &roll::RollOutcome) -> Self {
+        let roll_text = outcome.format_roll();
+        let result_text = format!(
+            "{} ({})",
+            outcome.format_value(),
+            outcome.format_results()
+        );
+        let width = roll_text.len().max(result_text.len()) as u16;
+        let dimensions =
+            Dims::new(Constraint::Length(width), Constraint::Length(2));
+        Self {
+            dimensions,
+            roll_text,
+            result_text,
+        }
+    }
+}
+
+impl ElSimp for RollDisplay {
+    fn dimensions(&self) -> Dims {
+        self.dimensions
+    }
+
+    fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        _state: &State,
+        selected: bool,
+    ) {
+        let widget = Paragraph::new(vec![
+            self.roll_text.to_line(),
+            self.result_text.to_line(),
+        ])
+        .centered();
+        frame.render_widget(style_selected(widget, selected), area);
     }
 }

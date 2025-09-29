@@ -10,7 +10,7 @@ use tui_input::backend::crossterm::EventHandler;
 use crate::{
     HandleResult,
     els::{self, BORDER},
-    stats,
+    roll, stats,
     view::{self, Dims, ElSimp, Scene, State},
 };
 
@@ -129,6 +129,7 @@ impl StringEditorModal {
         let layout = layout.modal(
             title,
             Dims::new(Constraint::Min(24), Constraint::Length(1 + BORDER)),
+            false,
         );
 
         Self {
@@ -251,7 +252,7 @@ impl SkillModal {
         let mut layout = view::Layout::new();
         layout.add_el(Box::new(editor));
         Self {
-            layout: layout.modal(skill, view::Dims::new(width, height)),
+            layout: layout.modal(skill, view::Dims::new(width, height), false),
             skill: skill.to_string(),
             eds,
         }
@@ -342,7 +343,7 @@ impl IntEditorModal {
         let mut layout = view::Layout::new();
         layout.add_el(Box::new(editor));
         Self {
-            layout: layout.modal(title, dimensions),
+            layout: layout.modal(title, dimensions, false),
             eds,
             handler,
         }
@@ -393,6 +394,47 @@ pub fn stat_modal(stat: stats::Stat, state: &State) -> Box<dyn Scene> {
         Constraint::Length(2 + 2 + 2 + BORDER),
         Constraint::Length(2 + BORDER),
     );
-    modal.layout = modal.layout.modal(&stat.short(), dimensions);
+    modal.layout = modal.layout.modal(&stat.short(), dimensions, false);
     Box::new(modal)
+}
+
+pub struct RollModal {
+    outcome: roll::RollOutcome,
+    layout: view::Layout,
+}
+
+impl RollModal {
+    pub fn new(r: roll::Roll) -> Self {
+        let outcome = r.resolve();
+        let mut layout = view::Layout::new();
+        let element = els::RollDisplay::new(&outcome);
+        let width = if let Constraint::Length(w) = element.dimensions().width()
+        {
+            w + BORDER
+        } else {
+            16
+        };
+        let width = Constraint::Length(width);
+        let height = Constraint::Length(2 + BORDER);
+        let dimensions = Dims::new(width, height);
+        layout.add_el(Box::new(element));
+        Self {
+            layout: layout.modal("Roll", dimensions, false),
+            outcome,
+        }
+    }
+}
+
+impl Scene for RollModal {
+    fn layout(&self) -> &view::Layout {
+        &self.layout
+    }
+
+    fn handle_key_press(
+        &mut self,
+        _key: KeyCode,
+        _state: &mut State,
+    ) -> HandleResult {
+        HandleResult::Default
+    }
 }
