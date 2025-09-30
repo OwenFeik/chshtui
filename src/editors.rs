@@ -150,7 +150,7 @@ impl Scene for StringEditorModal {
         &mut self,
         event: Event,
         state: &mut State,
-        _selected: view::SelectedEl,
+        _selected: view::ElPos,
     ) -> HandleResult {
         if let Event::Key(evt) = event
             && evt.kind == KeyEventKind::Press

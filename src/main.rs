@@ -31,7 +31,7 @@ enum HandleResult {
 struct SceneStackItem {
     scene: Box<dyn view::Scene>,
     dimensions: Rect,
-    position: view::SelectedEl,
+    position: view::ElPos,
 }
 
 impl SceneStackItem {

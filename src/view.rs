@@ -27,7 +27,7 @@ pub trait Scene {
         &mut self,
         event: Event,
         state: &mut State,
-        selected: SelectedEl,
+        selected: ElPos,
     ) -> HandleResult {
         let el_result = self.layout().handle(event.clone(), state, selected);
         if !matches!(el_result, HandleResult::Default) {
@@ -151,6 +151,9 @@ pub trait ElGroup {
     /// Return dimensions for the whole element group.
     fn dimensions(&self, state: &State) -> Dims;
 
+    /// Direction the group of elements is arranged in.
+    fn direction(&self) -> Direction;
+
     /// Render this group of elements into the provided area, based on the
     /// current state. If any element in the group is selected, its index
     /// within the group will be provided, otherwise selected will be None.
@@ -203,15 +206,18 @@ pub trait ElGroup {
     /// handling.
     fn child_count(&self, state: &State) -> usize;
 
-    /// Calculate and return the y position of the top of an element in this
-    /// group. Area is the area of the whole group. The y position should
-    /// returned should be the top of the child element at index selected.
-    fn child_y(&self, area: Rect, state: &State, selected: usize) -> u16;
+    /// Calculate and return the centre point of the child at the selected
+    /// index when this element group is rendered in the provided area.
+    fn child_pos(
+        &self,
+        area: Rect,
+        state: &State,
+        selected: usize,
+    ) -> (u16, u16);
 
-    /// Get the index of the child element within this element that is offset
-    /// by y_offset lines from the top of this element. Return the index of
-    /// that child element within this group.
-    fn child_at_y(&self, state: &State, y_offset: u16) -> usize;
+    /// Return the index of the child at the provided (x, y) position if this
+    /// element group is rendered in the provided area.
+    fn child_at_pos(&self, area: Rect, state: &State, x: u16, y: u16) -> usize;
 }
 
 /// Elements which can appear in view columns. Each element is either a simple
@@ -233,10 +239,16 @@ impl El {
     /// Return the number of child elements for this element. For simple
     /// elements this is always just 1. For groups this is the number of
     /// selectable child elements.
-    fn child_count(&self, state: &State) -> usize {
+    fn row_count(&self, state: &State) -> usize {
         match self {
             Self::Simple(_) => 1,
-            Self::Group(group) => group.child_count(state),
+            Self::Group(group) => {
+                if group.direction() == Direction::Vertical {
+                    group.child_count(state)
+                } else {
+                    1
+                }
+            }
         }
     }
 }
@@ -323,9 +335,10 @@ impl Column {
         state: &State,
         selected: Option<usize>,
     ) {
+        // TODO need to handle horizontal and vertical selection.
         let mut selected = selected.unwrap_or(usize::MAX);
         for (element, area) in self.iter_layout(state, area) {
-            let child_count = element.child_count(state);
+            let child_count = element.row_count(state);
             match element {
                 El::Simple(el) => el.render(frame, area, state, selected == 0),
                 El::Group(group) => {
@@ -348,72 +361,121 @@ impl Column {
         &self,
         event: Event,
         state: &mut State,
-        selected: usize,
+        selected: ElPos,
     ) -> HandleResult {
-        let mut selected = selected;
-        for element in &self.elements {
-            let child_count = element.child_count(state);
-            if selected < child_count {
-                return match element {
-                    El::Simple(el) => el.handle(event, state),
-                    El::Group(gp) => gp.handle(event, state, selected),
-                };
+        if let Some((el, child_index)) = self.get_element(selected, state) {
+            match el {
+                El::Simple(el) => el.handle(event, state),
+                El::Group(el) => el.handle(event, state, child_index),
             }
-            selected = selected.wrapping_sub(child_count);
+        } else {
+            HandleResult::Default
         }
-        HandleResult::Default
     }
 
     /// Count the number of selectable elements in this column.
-    fn child_count(&self, state: &State) -> usize {
-        self.elements.iter().map(|e| e.child_count(state)).sum()
+    fn row_count(&self, state: &State) -> usize {
+        self.elements.iter().map(|e| e.row_count(state)).sum()
     }
 
-    /// Calculate the y-value of the top of an element in this column when
-    /// rendered into an area of the provided size based on element selection
-    /// index.
-    fn child_y(&self, area: Rect, state: &State, selected: usize) -> u16 {
+    /// Get element in this column at the provided position.
+    fn get_element(&self, pos: ElPos, state: &State) -> Option<(&El, usize)> {
+        let mut row = pos.row;
+        for element in &self.elements {
+            let row_count = element.row_count(state);
+            if row < row_count {
+                let child_index = match element {
+                    El::Simple(el) => (el, 0),
+                    El::Group(gp) => match gp.direction() {
+                        Direction::Vertical => (g, row),
+                        Direction::Horizontal => (gp, pos.row_col),
+                    },
+                };
+                return Some((element, child_index));
+            }
+            row = row.wrapping_sub(row_count);
+        }
+        None
+    }
+
+    /// Clamp the row and row_col of the provided selection so that it points
+    /// to an element in this column.
+    fn clamp_selection(&self, selected: ElPos, state: &State) -> ElPos {
+        let mut pos = ElPos {
+            col: selected.col,
+            row: selected.row.min(self.row_count(state).saturating_sub(1)),
+            row_col: selected.row_col,
+        };
+
+        if let Some((el, _)) = self.get_element(pos, state) {
+            if let El::Group(gp) = el
+                && gp.direction() == Direction::Horizontal
+            {
+                pos.row_col =
+                    pos.row_col.min(gp.child_count(state).saturating_sub(1));
+            } else {
+                pos.row_col = 0;
+            }
+        }
+
+        pos
+    }
+
+    /// Calculate the position of the element at the provided selection index
+    /// within this column when this column is rendered in the provided area.
+    fn child_pos(
+        &self,
+        area: Rect,
+        state: &State,
+        selected: usize,
+    ) -> (u16, u16) {
         let mut selected = selected;
         for (element, area) in self.iter_layout(state, area) {
-            let child_count = element.child_count(state);
+            let child_count = element.row_count(state);
             if selected < child_count {
                 return match element {
-                    El::Simple(_) => area.y,
-                    El::Group(group) => group.child_y(area, state, selected),
+                    El::Simple(_) => centre_of(area),
+                    El::Group(group) => group.child_pos(area, state, selected),
                 };
             }
             selected = selected.saturating_sub(child_count);
         }
-        0
+        (0, 0)
     }
 
-    /// Calculate the selection index in this column for a given y coordinate.
-    /// This will calculate the layouts for elements in the column and
-    /// determine which element the provided y position falls into.
-    fn child_at_y(&self, area: Rect, state: &State, y: u16) -> usize {
+    /// Calculate the selection index into this column of the provided (x, y)
+    /// position.
+    fn child_at_pos(&self, area: Rect, state: &State, x: u16, y: u16) -> usize {
         let mut index = 0;
         for (element, area) in self.iter_layout(state, area) {
             if area.contains(Position::new(area.x, y)) {
                 return match element {
                     El::Simple(_) => index,
                     El::Group(group) => {
-                        index
-                            + group.child_at_y(state, y.saturating_sub(area.y))
+                        index + group.child_at_pos(area, state, x, y)
                     }
                 };
             }
-            index += element.child_count(state);
+            index += element.row_count(state);
         }
         0
     }
 }
 
-/// Selection coordinate into the view. Pair of (col, row) where col is the
-/// index of the column of the selected element and row is the selection index
-/// within the column of the element. Not that this does not just resolve to
+/// Selection coordinate into the view. Notw that this does not just resolve to
 /// columns[col].elements[row] because elements in a column may have multiple
-/// selected children.
-pub type SelectedEl = (usize, usize);
+/// selected children, or a child may have multiple columns (within parent).
+#[derive(Clone, Copy, Debug)]
+pub struct ElPos {
+    /// Column of selected element.
+    col: usize,
+
+    /// Row in column that contains element.
+    row: usize,
+
+    /// Column within row in column that element is.
+    row_col: usize,
+}
 
 /// A movement around a layout.
 pub enum Navigation {
@@ -519,14 +581,10 @@ impl Layout {
 
     /// Clamp the provided selected element to fall into valid selection
     /// indices.
-    fn clamp_selected(
-        &self,
-        (col, row): SelectedEl,
-        state: &State,
-    ) -> SelectedEl {
-        let col = col.min(self.columns.len().saturating_sub(1));
+    fn clamp_selected(&self, selected: ElPos, state: &State) -> ElPos {
+        let col = selected.col.min(self.columns.len().saturating_sub(1));
         let row = if let Some(column) = self.columns.get(col) {
-            row.min(column.child_count(state).saturating_sub(1))
+            row.min(column.row_count(state).saturating_sub(1))
         } else {
             0
         };
@@ -540,9 +598,9 @@ impl Layout {
         &self,
         area: Rect,
         state: &State,
-        current: SelectedEl,
+        current: ElPos,
         nav: Navigation,
-    ) -> SelectedEl {
+    ) -> ElPos {
         match nav {
             Navigation::Up => self.up(current, state),
             Navigation::Down => self.down(current, state),
@@ -552,22 +610,17 @@ impl Layout {
     }
 
     /// Move the selection up one element.
-    fn up(&self, (col, row): SelectedEl, state: &State) -> SelectedEl {
+    fn up(&self, (col, row): ElPos, state: &State) -> ElPos {
         self.clamp_selected((col, row.saturating_sub(1)), state)
     }
 
     /// Move the selection down one element.
-    fn down(&self, (col, row): SelectedEl, state: &State) -> SelectedEl {
+    fn down(&self, (col, row): ElPos, state: &State) -> ElPos {
         self.clamp_selected((col, row + 1), state)
     }
 
     /// Move the selection left one column.
-    fn left(
-        &self,
-        (col, row): SelectedEl,
-        state: &State,
-        area: Rect,
-    ) -> SelectedEl {
+    fn left(&self, (col, row): ElPos, state: &State, area: Rect) -> ElPos {
         let layout: Vec<(&Column, Rect)> =
             self.iter_layout(state, area).collect();
         let y = if let Some((current_column, current_area)) = layout.get(col) {
@@ -587,12 +640,7 @@ impl Layout {
     }
 
     /// Move the selection right one column.
-    fn right(
-        &self,
-        (col, row): SelectedEl,
-        state: &State,
-        area: Rect,
-    ) -> SelectedEl {
+    fn right(&self, (col, row): ElPos, state: &State, area: Rect) -> ElPos {
         let layout: Vec<(&Column, Rect)> =
             self.iter_layout(state, area).collect();
         let y = if let Some((current_column, current_area)) = layout.get(col) {
@@ -617,7 +665,7 @@ impl Layout {
         &self,
         event: Event,
         state: &mut State,
-        (col, row): SelectedEl,
+        (col, row): ElPos,
     ) -> HandleResult {
         if let Some(column) = self.columns.get(col) {
             column.handle(event, state, row)
@@ -632,7 +680,7 @@ impl Layout {
         &self,
         frame: &mut Frame,
         state: &State,
-        (col, row): SelectedEl,
+        (col, row): ElPos,
     ) -> Rect {
         let (area, selection) = match &self.mode {
             LayoutRenderMode::FullScreen => (frame.area(), true),
@@ -699,4 +747,10 @@ pub fn centre_in(area: Rect, dimensions: Dims) -> Rect {
     );
     let [_left, area, _right] = row.areas(area);
     area
+}
+
+/// Return the centre point of the provided rectangle (rounded down).
+pub fn centre_of(area: Rect) -> (u16, u16) {
+    let x = area.x + (area.width / 2);
+    let y = area.y + (area.height / 2);
 }
