@@ -5,17 +5,23 @@ use ratatui::{
     widgets::{Block, Clear},
 };
 
-use crate::HandleResult;
+use crate::SheetState;
 
-/// Application state type, reference provided to elements during rendering.
-pub type State = crate::SheetState;
+pub type Handler = HandleResult<SheetState>;
+
+pub enum HandleResult<S> {
+    Close,
+    Open(Box<dyn Scene<S>>),
+    Consume,
+    Default,
+}
 
 /// A scene is a full-screen (potentially floating) view of the application.
 /// A scene is expected to track non-application global state internally and
 /// update it appropriately based on user into.
-pub trait Scene {
+pub trait Scene<S> {
     /// Returns a reference to the scene's layout for navigation or rendering.
-    fn layout(&self) -> &Layout;
+    fn layout(&self) -> &Layout<S>;
 
     /// Handle user input entered while the scene is active. Should return
     /// [HandleResult::Consume] if the input was used to update state, or
@@ -26,9 +32,9 @@ pub trait Scene {
     fn handle(
         &mut self,
         event: Event,
-        state: &mut State,
+        state: &mut S,
         selected: ElPos,
-    ) -> HandleResult {
+    ) -> HandleResult<S> {
         let el_result = self.layout().handle(event.clone(), state, selected);
         if !matches!(el_result, HandleResult::Default) {
             return el_result;
@@ -42,8 +48,8 @@ pub trait Scene {
         HandleResult::Default
     }
 
-    /// Handle a key press while the scene was active. If the keypress is
-    /// used by the scene, [HandleResult::Consume] should be returned.
+    /// Handle a key press while the scene was active. If the keypress is used
+    /// by the scene, [HandleResult::Consume] should be returned.
     /// Otherwise [HandleResult::Default] can be returned to delegate handling
     /// to the parent context.
     ///
@@ -52,8 +58,10 @@ pub trait Scene {
     fn handle_key_press(
         &mut self,
         _key: KeyCode,
-        _state: &mut State,
-    ) -> HandleResult;
+        _state: &mut S,
+    ) -> HandleResult<S> {
+        HandleResult::Default
+    }
 }
 
 /// Element dimension constraints.
@@ -70,6 +78,10 @@ impl Dims {
             x: width,
             y: height,
         }
+    }
+
+    pub fn length(width: u16, height: u16) -> Self {
+        Self::new(Constraint::Length(width), Constraint::Length(height))
     }
 
     pub fn width(&self) -> Constraint {
@@ -94,23 +106,17 @@ impl From<Dims> for (Constraint, Constraint) {
 }
 
 /// Trait for simple elements, single elements selected as a whole.
-pub trait ElSimp {
+pub trait ElSimp<S> {
     /// Return dimension constraints for this element.
     fn dimensions(&self) -> Dims;
 
     /// Render this element to the frame in the provided area, based on the
     /// current state. If selected is indicated the element should be styled
     /// appropriately.
-    fn render(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        state: &State,
-        selected: bool,
-    );
+    fn render(&self, frame: &mut Frame, area: Rect, state: &S, selected: bool);
 
     /// Handle a keystroke while this is the active element.
-    fn handle(&self, event: Event, state: &mut State) -> HandleResult {
+    fn handle(&self, event: Event, state: &mut S) -> HandleResult<S> {
         if let Event::Key(key_event) = event {
             if key_event.kind == KeyEventKind::Press {
                 return self.handle_key_press(key_event.code, state);
@@ -124,8 +130,8 @@ pub trait ElSimp {
     fn handle_key_press(
         &self,
         code: KeyCode,
-        state: &mut State,
-    ) -> HandleResult {
+        state: &mut S,
+    ) -> HandleResult<S> {
         match code {
             KeyCode::Enter => self.handle_select(state),
             KeyCode::Char('r') => self.handle_roll(state),
@@ -134,12 +140,12 @@ pub trait ElSimp {
     }
 
     /// Handle user requesting a roll from this element.
-    fn handle_roll(&self, _state: &State) -> HandleResult {
+    fn handle_roll(&self, _state: &S) -> HandleResult<S> {
         HandleResult::Default
     }
 
     /// Handle this element being selected.
-    fn handle_select(&self, _state: &State) -> HandleResult {
+    fn handle_select(&self, _state: &S) -> HandleResult<S> {
         HandleResult::Default
     }
 }
@@ -147,9 +153,9 @@ pub trait ElSimp {
 /// Trait for grouped elements, which are rendered as a single element but
 /// selected individually. For example a table with individually selectable
 /// rows.
-pub trait ElGroup {
+pub trait ElGroup<S> {
     /// Return dimensions for the whole element group.
-    fn dimensions(&self, state: &State) -> Dims;
+    fn dimensions(&self, state: &S) -> Dims;
 
     /// Direction the group of elements is arranged in.
     fn direction(&self) -> Direction;
@@ -161,7 +167,7 @@ pub trait ElGroup {
         &self,
         frame: &mut Frame,
         area: Rect,
-        state: &State,
+        state: &S,
         selected: Option<usize>,
     );
 
@@ -169,9 +175,9 @@ pub trait ElGroup {
     fn handle(
         &self,
         event: Event,
-        state: &mut State,
+        state: &mut S,
         selected: usize,
-    ) -> HandleResult {
+    ) -> HandleResult<S> {
         if let Event::Key(key_event) = event {
             if key_event.kind == KeyEventKind::Press {
                 return self.handle_key_press(key_event.code, state, selected);
@@ -183,9 +189,9 @@ pub trait ElGroup {
     fn handle_key_press(
         &self,
         code: KeyCode,
-        state: &mut State,
+        state: &mut S,
         selected: usize,
-    ) -> HandleResult {
+    ) -> HandleResult<S> {
         match code {
             KeyCode::Enter => self.handle_select(state, selected),
             KeyCode::Char('r') => self.handle_roll(state, selected),
@@ -193,43 +199,38 @@ pub trait ElGroup {
         }
     }
 
-    fn handle_roll(&self, _state: &State, _selected: usize) -> HandleResult {
+    fn handle_roll(&self, _state: &S, _selected: usize) -> HandleResult<S> {
         HandleResult::Default
     }
 
     /// Handle a child of this element being selected by the user.
-    fn handle_select(&self, _state: &State, _selected: usize) -> HandleResult {
+    fn handle_select(&self, _state: &S, _selected: usize) -> HandleResult<S> {
         HandleResult::Default
     }
 
     /// Return the number of child elements in this group, for selection
     /// handling.
-    fn child_count(&self, state: &State) -> usize;
+    fn child_count(&self, state: &S) -> usize;
 
     /// Calculate and return the centre point of the child at the selected
     /// index when this element group is rendered in the provided area.
-    fn child_pos(
-        &self,
-        area: Rect,
-        state: &State,
-        selected: usize,
-    ) -> (u16, u16);
+    fn child_pos(&self, area: Rect, state: &S, selected: usize) -> (u16, u16);
 
     /// Return the index of the child at the provided (x, y) position if this
     /// element group is rendered in the provided area.
-    fn child_at_pos(&self, area: Rect, state: &State, x: u16, y: u16) -> usize;
+    fn child_at_pos(&self, area: Rect, state: &S, x: u16, y: u16) -> usize;
 }
 
 /// Elements which can appear in view columns. Each element is either a simple
 /// single element or a group of elements rendered together.
-enum El {
-    Simple(Box<dyn ElSimp>),
-    Group(Box<dyn ElGroup>),
+enum El<S> {
+    Simple(Box<dyn ElSimp<S>>),
+    Group(Box<dyn ElGroup<S>>),
 }
 
-impl El {
+impl<S> El<S> {
     /// Return the dimension constraints for this element.
-    fn dimensions(&self, state: &State) -> Dims {
+    fn dimensions(&self, state: &S) -> Dims {
         match self {
             Self::Simple(el) => el.dimensions(),
             Self::Group(el) => el.dimensions(state),
@@ -239,7 +240,7 @@ impl El {
     /// Return the number of child elements for this element. For simple
     /// elements this is always just 1. For groups this is the number of
     /// selectable child elements.
-    fn row_count(&self, state: &State) -> usize {
+    fn row_count(&self, state: &S) -> usize {
         match self {
             Self::Simple(_) => 1,
             Self::Group(group) => {
@@ -282,11 +283,11 @@ fn compare_constraints(a: &Constraint, b: &Constraint) -> std::cmp::Ordering {
 
 /// A column in the view contains any number of elements rendered top to
 /// bottom.
-struct Column {
-    elements: Vec<El>,
+struct Column<S> {
+    elements: Vec<El<S>>,
 }
 
-impl Column {
+impl<S> Column<S> {
     /// Create a new empty column.
     fn new() -> Self {
         Self {
@@ -297,7 +298,7 @@ impl Column {
     /// Return a constraint for the width of this column in the overall view.
     /// This will be the most constraining constraint of any child element in
     /// the column.
-    fn width(&self, state: &State) -> Constraint {
+    fn width(&self, state: &S) -> Constraint {
         self.elements
             .iter()
             .map(|e| e.dimensions(state).x)
@@ -307,7 +308,7 @@ impl Column {
 
     /// Returns a ratatui layout for this column to lay out child elements for
     /// rendering.
-    fn layout(&self, state: &State) -> ratatui::layout::Layout {
+    fn layout(&self, state: &S) -> ratatui::layout::Layout {
         ratatui::layout::Layout::new(
             Direction::Vertical,
             self.elements.iter().map(|e| e.dimensions(state).y),
@@ -318,9 +319,9 @@ impl Column {
     /// rendering or position calculation.
     fn iter_layout(
         &self,
-        state: &State,
+        state: &S,
         area: Rect,
-    ) -> impl Iterator<Item = (&El, Rect)> {
+    ) -> impl Iterator<Item = (&El<S>, Rect)> {
         let areas = self.layout(state).split(area).to_vec();
         self.elements.iter().zip(areas)
     }
@@ -332,25 +333,35 @@ impl Column {
         &self,
         frame: &mut Frame,
         area: Rect,
-        state: &State,
-        selected: Option<usize>,
+        state: &S,
+        selected: Option<ColPos>,
     ) {
-        // TODO need to handle horizontal and vertical selection.
-        let mut selected = selected.unwrap_or(usize::MAX);
+        let mut row = selected.map(|p| p.row).unwrap_or(usize::MAX);
         for (element, area) in self.iter_layout(state, area) {
-            let child_count = element.row_count(state);
+            let row_count = element.row_count(state);
             match element {
-                El::Simple(el) => el.render(frame, area, state, selected == 0),
+                El::Simple(el) => el.render(frame, area, state, row == 0),
                 El::Group(group) => {
-                    let child_index = if selected < child_count {
-                        Some(selected)
-                    } else {
-                        None
+                    let child_index = match group.direction() {
+                        Direction::Vertical => {
+                            if row < row_count {
+                                Some(row)
+                            } else {
+                                None
+                            }
+                        }
+                        Direction::Horizontal => {
+                            if row == 0 {
+                                selected.map(|p| p.row_col)
+                            } else {
+                                None
+                            }
+                        }
                     };
                     group.render(frame, area, state, child_index);
                 }
             }
-            selected = selected.wrapping_sub(child_count);
+            row = row.wrapping_sub(row_count);
         }
     }
 
@@ -360,9 +371,9 @@ impl Column {
     fn handle(
         &self,
         event: Event,
-        state: &mut State,
-        selected: ElPos,
-    ) -> HandleResult {
+        state: &mut S,
+        selected: ColPos,
+    ) -> HandleResult<S> {
         if let Some((el, child_index)) = self.get_element(selected, state) {
             match el {
                 El::Simple(el) => el.handle(event, state),
@@ -374,21 +385,21 @@ impl Column {
     }
 
     /// Count the number of selectable elements in this column.
-    fn row_count(&self, state: &State) -> usize {
+    fn row_count(&self, state: &S) -> usize {
         self.elements.iter().map(|e| e.row_count(state)).sum()
     }
 
     /// Get element in this column at the provided position.
-    fn get_element(&self, pos: ElPos, state: &State) -> Option<(&El, usize)> {
+    fn get_element(&self, pos: ColPos, state: &S) -> Option<(&El<S>, usize)> {
         let mut row = pos.row;
         for element in &self.elements {
             let row_count = element.row_count(state);
             if row < row_count {
                 let child_index = match element {
-                    El::Simple(el) => (el, 0),
+                    El::Simple(_) => 0,
                     El::Group(gp) => match gp.direction() {
-                        Direction::Vertical => (g, row),
-                        Direction::Horizontal => (gp, pos.row_col),
+                        Direction::Vertical => row,
+                        Direction::Horizontal => pos.row_col,
                     },
                 };
                 return Some((element, child_index));
@@ -400,9 +411,8 @@ impl Column {
 
     /// Clamp the row and row_col of the provided selection so that it points
     /// to an element in this column.
-    fn clamp_selection(&self, selected: ElPos, state: &State) -> ElPos {
-        let mut pos = ElPos {
-            col: selected.col,
+    fn clamp_selected(&self, selected: ColPos, state: &S) -> ColPos {
+        let mut pos = ColPos {
             row: selected.row.min(self.row_count(state).saturating_sub(1)),
             row_col: selected.row_col,
         };
@@ -423,58 +433,88 @@ impl Column {
 
     /// Calculate the position of the element at the provided selection index
     /// within this column when this column is rendered in the provided area.
-    fn child_pos(
-        &self,
-        area: Rect,
-        state: &State,
-        selected: usize,
-    ) -> (u16, u16) {
-        let mut selected = selected;
+    fn child_pos(&self, area: Rect, state: &S, pos: ColPos) -> (u16, u16) {
+        let mut row = pos.row;
         for (element, area) in self.iter_layout(state, area) {
-            let child_count = element.row_count(state);
-            if selected < child_count {
+            let row_count = element.row_count(state);
+            if row < row_count {
                 return match element {
                     El::Simple(_) => centre_of(area),
-                    El::Group(group) => group.child_pos(area, state, selected),
+                    El::Group(group) => match group.direction() {
+                        Direction::Vertical => {
+                            group.child_pos(area, state, row)
+                        }
+                        Direction::Horizontal => {
+                            group.child_pos(area, state, pos.row_col)
+                        }
+                    },
                 };
             }
-            selected = selected.saturating_sub(child_count);
+            row = row.saturating_sub(row_count);
         }
         (0, 0)
     }
 
     /// Calculate the selection index into this column of the provided (x, y)
     /// position.
-    fn child_at_pos(&self, area: Rect, state: &State, x: u16, y: u16) -> usize {
-        let mut index = 0;
-        for (element, area) in self.iter_layout(state, area) {
-            if area.contains(Position::new(area.x, y)) {
-                return match element {
-                    El::Simple(_) => index,
-                    El::Group(group) => {
-                        index + group.child_at_pos(area, state, x, y)
-                    }
+    fn child_at_coordinate(
+        &self,
+        area: Rect,
+        state: &S,
+        x: u16,
+        y: u16,
+    ) -> ColPos {
+        let mut row = 0;
+        for (el, el_area) in self.iter_layout(state, area) {
+            if el_area.contains(Position::new(el_area.x, y)) {
+                return match el {
+                    El::Simple(_) => ColPos { row, row_col: 0 },
+                    El::Group(group) => match group.direction() {
+                        Direction::Vertical => ColPos {
+                            row: row + group.child_at_pos(el_area, state, x, y),
+                            row_col: 0,
+                        },
+                        Direction::Horizontal => ColPos {
+                            row,
+                            row_col: group.child_at_pos(el_area, state, x, y),
+                        },
+                    },
                 };
             }
-            index += element.row_count(state);
+            row += el.row_count(state);
         }
-        0
+        ColPos::default()
     }
 }
 
-/// Selection coordinate into the view. Notw that this does not just resolve to
-/// columns[col].elements[row] because elements in a column may have multiple
-/// selected children, or a child may have multiple columns (within parent).
-#[derive(Clone, Copy, Debug)]
-pub struct ElPos {
-    /// Column of selected element.
-    col: usize,
-
+#[derive(Clone, Copy, Default, Debug)]
+struct ColPos {
     /// Row in column that contains element.
     row: usize,
 
     /// Column within row in column that element is.
     row_col: usize,
+}
+
+/// Selection coordinate into the view. Notw that this does not just resolve to
+/// columns[col].elements[row] because elements in a column may have multiple
+/// selected children, or a child may have multiple columns (within parent).
+#[derive(Clone, Copy, Default, Debug)]
+pub struct ElPos {
+    /// Column of selected element.
+    col: usize,
+
+    /// Position within column of element.
+    pos: ColPos,
+}
+
+impl ElPos {
+    fn new(col: usize, row: usize, row_col: usize) {
+        Self {
+            col,
+            pos: ColPos { row, row_col },
+        }
+    }
 }
 
 /// A movement around a layout.
@@ -514,15 +554,15 @@ enum LayoutRenderMode {
 
 /// View of the application state. Handles rendering the ratatui TUI based on
 /// the current state and the provided elements.
-pub struct Layout {
+pub struct Layout<S> {
     /// Layout columns.
-    columns: Vec<Column>,
+    columns: Vec<Column<S>>,
 
     /// Describes how to render the layout into a frame.
     mode: LayoutRenderMode,
 }
 
-impl Layout {
+impl<S> Layout<S> {
     /// Create a new empty view, with a single default column and no elements.
     pub fn new() -> Self {
         Self {
@@ -547,7 +587,7 @@ impl Layout {
     }
 
     /// Calculate ratatui layout for the view's columns.
-    fn layout(&self, state: &State) -> ratatui::layout::Layout {
+    fn layout(&self, state: &S) -> ratatui::layout::Layout {
         ratatui::layout::Layout::new(
             Direction::Horizontal,
             self.columns.iter().map(|e| e.width(state)),
@@ -555,7 +595,7 @@ impl Layout {
     }
 
     /// Calculate minimum width of the layout.
-    fn width(&self, state: &State) -> u16 {
+    fn width(&self, state: &S) -> u16 {
         let mut width = 0;
         for col in &self.columns {
             match col.width(state) {
@@ -572,23 +612,23 @@ impl Layout {
     /// calculation.
     fn iter_layout(
         &self,
-        state: &State,
+        state: &S,
         area: Rect,
-    ) -> impl Iterator<Item = (&Column, Rect)> {
+    ) -> impl Iterator<Item = (&Column<S>, Rect)> {
         let areas = self.layout(state).split(area).to_vec();
         self.columns.iter().zip(areas)
     }
 
     /// Clamp the provided selected element to fall into valid selection
     /// indices.
-    fn clamp_selected(&self, selected: ElPos, state: &State) -> ElPos {
+    fn clamp_selected(&self, selected: ElPos, state: &S) -> ElPos {
         let col = selected.col.min(self.columns.len().saturating_sub(1));
-        let row = if let Some(column) = self.columns.get(col) {
-            row.min(column.row_count(state).saturating_sub(1))
-        } else {
-            0
-        };
-        (col, row)
+        let pos = self
+            .columns
+            .get(col)
+            .map(|column| column.clamp_selected(selected.pos, state))
+            .unwrap_or_default();
+        ElPos { col, pos }
     }
 
     /// Move the provided current position in the direction indicated by the
@@ -597,7 +637,7 @@ impl Layout {
     pub fn navigate(
         &self,
         area: Rect,
-        state: &State,
+        state: &S,
         current: ElPos,
         nav: Navigation,
     ) -> ElPos {
@@ -610,53 +650,80 @@ impl Layout {
     }
 
     /// Move the selection up one element.
-    fn up(&self, (col, row): ElPos, state: &State) -> ElPos {
-        self.clamp_selected((col, row.saturating_sub(1)), state)
+    fn up(&self, mut from: ElPos, state: &S) -> ElPos {
+        from.pos.row = from.pos.row.saturating_sub(1);
+        self.clamp_selected(from, state)
     }
 
     /// Move the selection down one element.
-    fn down(&self, (col, row): ElPos, state: &State) -> ElPos {
-        self.clamp_selected((col, row + 1), state)
+    fn down(&self, mut from: ElPos, state: &S) -> ElPos {
+        from.pos.row += 1;
+        self.clamp_selected(from, state)
     }
 
     /// Move the selection left one column.
-    fn left(&self, (col, row): ElPos, state: &State, area: Rect) -> ElPos {
-        let layout: Vec<(&Column, Rect)> =
-            self.iter_layout(state, area).collect();
-        let y = if let Some((current_column, current_area)) = layout.get(col) {
-            current_column.child_y(*current_area, state, row)
+    fn left(&self, mut from: ElPos, state: &S, area: Rect) -> ElPos {
+        if from.pos.row_col > 0 {
+            from.pos.row_col -= 1;
         } else {
-            0
-        };
+            let layout: Vec<(&Column, Rect)> =
+                self.iter_layout(state, area).collect();
+            let y = if let Some((current_column, current_area)) =
+                layout.get(from.col)
+            {
+                current_column.child_pos(*current_area, state, from.pos).1
+            } else {
+                0
+            };
 
-        let new_col = col.saturating_sub(1);
-        let new_row = if let Some((new_column, new_area)) = layout.get(new_col)
-        {
-            new_column.child_at_y(*new_area, state, y)
-        } else {
-            0
-        };
-        self.clamp_selected((new_col, new_row), state)
+            from.col = from.col.saturating_sub(1);
+            from.pos =
+                if let Some((new_column, new_area)) = layout.get(from.col) {
+                    let x = new_area.x + new_area.width - 1; // Right side.
+                    new_column.child_at_coordinate(*new_area, state, x, y)
+                } else {
+                    ColPos::default()
+                };
+        }
+
+        self.clamp_selected(from, state)
     }
 
     /// Move the selection right one column.
-    fn right(&self, (col, row): ElPos, state: &State, area: Rect) -> ElPos {
+    fn right(&self, mut from: ElPos, state: &S, area: Rect) -> ElPos {
+        // See if we can move to the right within the current column and
+        // return early if so.
+        if let Some(column) = self.columns.get(from.col) {
+            if let Some((El::Group(gp), _)) =
+                column.get_element(from.pos, state)
+                && gp.direction() == Direction::Horizontal
+            {
+                if from.pos.row_col + 1 < gp.child_count(state) {
+                    from.pos.row_col += 1;
+                    return from;
+                }
+            }
+        }
+
+        // Otherwise move right to the same height in the next column.
         let layout: Vec<(&Column, Rect)> =
             self.iter_layout(state, area).collect();
-        let y = if let Some((current_column, current_area)) = layout.get(col) {
-            current_column.child_y(*current_area, state, row)
+        let y = if let Some((current_column, current_area)) =
+            layout.get(from.col)
+        {
+            current_column.child_pos(*current_area, state, from.pos).1
         } else {
             0
         };
 
-        let new_col = (col + 1).min(self.columns.len().saturating_sub(1));
-        let new_row = if let Some((new_column, new_area)) = layout.get(new_col)
-        {
-            new_column.child_at_y(*new_area, state, y)
+        from.col = from.col + 1;
+        from.pos = if let Some((new_column, new_area)) = layout.get(from.col) {
+            new_column.child_at_coordinate(*new_area, state, new_area.x, y)
         } else {
-            0
+            ColPos::default()
         };
-        self.clamp_selected((new_col, new_row), state)
+
+        self.clamp_selected(from, state)
     }
 
     /// Pass an event through to the element at the provided selection location
@@ -664,11 +731,11 @@ impl Layout {
     pub fn handle(
         &self,
         event: Event,
-        state: &mut State,
-        (col, row): ElPos,
-    ) -> HandleResult {
-        if let Some(column) = self.columns.get(col) {
-            column.handle(event, state, row)
+        state: &mut S,
+        at: ElPos,
+    ) -> HandleResult<S> {
+        if let Some(column) = self.columns.get(at.col) {
+            column.handle(event, state, at.pos)
         } else {
             HandleResult::Default
         }
@@ -679,8 +746,8 @@ impl Layout {
     pub fn render(
         &self,
         frame: &mut Frame,
-        state: &State,
-        (col, row): ElPos,
+        state: &S,
+        selected: ElPos,
     ) -> Rect {
         let (area, selection) = match &self.mode {
             LayoutRenderMode::FullScreen => (frame.area(), true),
@@ -700,26 +767,26 @@ impl Layout {
         };
 
         for (i, (column, area)) in self.iter_layout(state, area).enumerate() {
-            let selected_index = if selection && col == i {
-                Some(row)
+            let selected_pos = if selection && selected.col == i {
+                Some(selected.pos)
             } else {
                 None
             };
-            column.render(frame, area, state, selected_index);
+            column.render(frame, area, state, selected_pos);
         }
 
         area
     }
 
     /// Add an element to the last column of the view.
-    pub fn add_el(&mut self, el: Box<dyn ElSimp>) {
+    pub fn add_el(&mut self, el: Box<dyn ElSimp<S>>) {
         if let Some(column) = self.columns.last_mut() {
             column.elements.push(El::Simple(el));
         }
     }
 
     /// Add an element group to the last column of the view.
-    pub fn add_group(&mut self, group: Box<dyn ElGroup>) {
+    pub fn add_group(&mut self, group: Box<dyn ElGroup<S>>) {
         if let Some(column) = self.columns.last_mut() {
             column.elements.push(El::Group(group));
         }
@@ -753,4 +820,77 @@ pub fn centre_in(area: Rect, dimensions: Dims) -> Rect {
 pub fn centre_of(area: Rect) -> (u16, u16) {
     let x = area.x + (area.width / 2);
     let y = area.y + (area.height / 2);
+    (x, y)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    struct TestEl {
+        width: u16,
+        height: u16,
+    }
+
+    impl TestEl {
+        fn new(width: u16, height: u16) -> Self {
+            Self { width, height }
+        }
+    }
+
+    impl<S> ElSimp<S> for TestEl {
+        fn dimensions(&self) -> Dims {
+            Dims::length(self.width, self.height)
+        }
+
+        fn render(
+            &self,
+            frame: &mut Frame,
+            area: Rect,
+            _state: &S,
+            _selected: bool,
+        ) {
+            frame.render_widget(
+                Block::bordered()
+                    .title(format!("{}x{}", self.width, self.height)),
+                area,
+            );
+        }
+    }
+
+    #[test]
+    fn test_centre_in() {
+        let area = Rect::new(5, 5, 5, 5);
+        let dimensions = Dims::new(Constraint::Length(1), Constraint::Max(1));
+        let centre = centre_in(area, dimensions);
+        assert_eq!(centre, Rect::new(7, 7, 1, 1));
+    }
+
+    #[test]
+    fn test_centre_of() {
+        let area = Rect::new(1, 1, 5, 10);
+        assert_eq!(centre_of(area), (3, 6));
+    }
+
+    #[test]
+    fn test_navigate() {
+        let mut layout = Layout::new();
+        layout.add_el(Box::new(TestEl::new(16, 64)));
+        layout.add_column();
+        layout.add_el(Box::new(TestEl::new(16, 16)));
+        layout.add_el(Box::new(TestEl::new(16, 32)));
+        layout.add_el(Box::new(TestEl::new(16, 16)));
+        layout.add_column();
+        layout.add_el(Box::new(TestEl::new(16, 48)));
+        layout.add_el(Box::new(TestEl::new(16, 16)));
+
+        // Layout is 48 characters wide and 64 tall. x and y shouldn't matter
+        // for navigation.
+        let area = Rect::new(128, 128, 16 * 3, 64);
+
+        assert_eq!(
+            layout.navigate(area, &(), ElPos::default(), Navigation::Down),
+            ElPos::new(0, 1, 0)
+        );
+    }
 }

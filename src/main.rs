@@ -21,25 +21,18 @@ struct SheetState {
     skills: stats::Skills,
 }
 
-enum HandleResult {
-    Close,
-    Open(Box<dyn view::Scene>),
-    Consume,
-    Default,
-}
-
 struct SceneStackItem {
-    scene: Box<dyn view::Scene>,
+    scene: Box<dyn view::Scene<SheetState>>,
     dimensions: Rect,
     position: view::ElPos,
 }
 
 impl SceneStackItem {
-    fn new(scene: Box<dyn view::Scene>) -> Self {
+    fn new(scene: Box<dyn view::Scene<SheetState>>) -> Self {
         Self {
             scene,
             dimensions: Default::default(),
-            position: (0, 0),
+            position: view::ElPos::default(),
         }
     }
 }
@@ -91,7 +84,7 @@ impl App {
             &mut self.state,
             active.position,
         );
-        if matches!(outcome, HandleResult::Default) {
+        if matches!(outcome, view::Handler::Default) {
             self.handle(event);
         } else {
             self.process_handle_result(outcome);
@@ -99,15 +92,16 @@ impl App {
         Ok(())
     }
 
-    fn process_handle_result(&mut self, res: HandleResult) {
+    fn process_handle_result(&mut self, res: view::Handler) {
+        use view::Handler;
         match res {
-            HandleResult::Close => {
+            Handler::Close => {
                 self.scene_stack.pop();
             }
-            HandleResult::Open(scene) => {
+            Handler::Open(scene) => {
                 self.scene_stack.push(SceneStackItem::new(scene))
             }
-            HandleResult::Consume | HandleResult::Default => {}
+            Handler::Consume | Handler::Default => {}
         }
     }
 

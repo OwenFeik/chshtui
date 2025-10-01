@@ -1,12 +1,7 @@
-use ratatui::crossterm::event::KeyCode;
-
-use crate::{
-    HandleResult, editors, els, stats,
-    view::{self, State},
-};
+use crate::{SheetState, editors, els, stats, view};
 
 pub struct SheetScene {
-    layout: view::Layout,
+    layout: view::Layout<SheetState>,
 }
 
 impl SheetScene {
@@ -43,16 +38,8 @@ impl SheetScene {
     }
 }
 
-impl view::Scene for SheetScene {
-    fn layout(&self) -> &view::Layout {
+impl view::Scene<SheetState> for SheetScene {
+    fn layout(&self) -> &view::Layout<SheetState> {
         &self.layout
-    }
-
-    fn handle_key_press(
-        &mut self,
-        _key: KeyCode,
-        _state: &mut State,
-    ) -> HandleResult {
-        HandleResult::Default
     }
 }

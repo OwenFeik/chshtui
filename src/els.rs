@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Rect},
+    layout::{Constraint, Direction, Rect},
     style::{Color, Stylize},
     text::{Line, ToLine},
     widgets::{Block, Cell, Paragraph, Row, Table},
@@ -126,6 +126,10 @@ impl ElSimp for StatEl {
 pub struct SkillsEl;
 
 impl ElGroup for SkillsEl {
+    fn direction(&self) -> Direction {
+        Direction::Vertical
+    }
+
     fn dimensions(&self, state: &State) -> Dims {
         let longest = state
             .skills
@@ -207,11 +211,25 @@ impl ElGroup for SkillsEl {
         state.skills.0.len()
     }
 
-    fn child_y(&self, area: Rect, _state: &State, selected: usize) -> u16 {
-        area.top() + selected as u16 + BORDER / 2
+    fn child_pos(
+        &self,
+        area: Rect,
+        _state: &State,
+        selected: usize,
+    ) -> (u16, u16) {
+        let x = area.x + area.width / 2;
+        let y = area.top() + selected as u16 + BORDER / 2;
+        (x, y)
     }
 
-    fn child_at_y(&self, state: &State, y_offset: u16) -> usize {
+    fn child_at_pos(
+        &self,
+        area: Rect,
+        state: &State,
+        _x: u16,
+        y: u16,
+    ) -> usize {
+        let y_offset = y - area.y;
         let table_index = y_offset as usize + 1;
         table_index.min(state.skills.0.len().saturating_sub(1))
     }
