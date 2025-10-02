@@ -80,10 +80,6 @@ impl Dims {
         }
     }
 
-    pub fn length(width: u16, height: u16) -> Self {
-        Self::new(Constraint::Length(width), Constraint::Length(height))
-    }
-
     pub fn width(&self) -> Constraint {
         self.x
     }
@@ -483,11 +479,17 @@ impl<S> Column<S> {
             }
             row += el.row_count(state);
         }
-        ColPos::default()
+
+        // y is past the end of the last element. Return the position of the
+        // last element.
+        ColPos {
+            row: self.elements.len().saturating_sub(1),
+            row_col: 0,
+        }
     }
 }
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 struct ColPos {
     /// Row in column that contains element.
     row: usize,
@@ -499,7 +501,7 @@ struct ColPos {
 /// Selection coordinate into the view. Notw that this does not just resolve to
 /// columns[col].elements[row] because elements in a column may have multiple
 /// selected children, or a child may have multiple columns (within parent).
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct ElPos {
     /// Column of selected element.
     col: usize,
@@ -508,16 +510,8 @@ pub struct ElPos {
     pos: ColPos,
 }
 
-impl ElPos {
-    fn new(col: usize, row: usize, row_col: usize) {
-        Self {
-            col,
-            pos: ColPos { row, row_col },
-        }
-    }
-}
-
 /// A movement around a layout.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Navigation {
     Up,
     Down,
@@ -666,7 +660,7 @@ impl<S> Layout<S> {
         if from.pos.row_col > 0 {
             from.pos.row_col -= 1;
         } else {
-            let layout: Vec<(&Column, Rect)> =
+            let layout: Vec<(&Column<S>, Rect)> =
                 self.iter_layout(state, area).collect();
             let y = if let Some((current_column, current_area)) =
                 layout.get(from.col)
@@ -697,31 +691,34 @@ impl<S> Layout<S> {
             if let Some((El::Group(gp), _)) =
                 column.get_element(from.pos, state)
                 && gp.direction() == Direction::Horizontal
+                && from.pos.row_col + 1 < gp.child_count(state)
             {
-                if from.pos.row_col + 1 < gp.child_count(state) {
-                    from.pos.row_col += 1;
-                    return from;
-                }
+                from.pos.row_col += 1;
+                return from;
             }
         }
 
-        // Otherwise move right to the same height in the next column.
-        let layout: Vec<(&Column, Rect)> =
-            self.iter_layout(state, area).collect();
-        let y = if let Some((current_column, current_area)) =
-            layout.get(from.col)
-        {
-            current_column.child_pos(*current_area, state, from.pos).1
-        } else {
-            0
-        };
+        if from.col + 1 < self.columns.len() {
+            // Otherwise move right to the same height in the next column.
+            let layout: Vec<(&Column<S>, Rect)> =
+                self.iter_layout(state, area).collect();
+            let y = if let Some((current_column, current_area)) =
+                layout.get(from.col)
+            {
+                current_column.child_pos(*current_area, state, from.pos).1
+            } else {
+                0
+            };
 
-        from.col = from.col + 1;
-        from.pos = if let Some((new_column, new_area)) = layout.get(from.col) {
-            new_column.child_at_coordinate(*new_area, state, new_area.x, y)
-        } else {
-            ColPos::default()
-        };
+            from.col += 1;
+            from.pos = if let Some((new_column, new_area)) =
+                layout.get(from.col)
+            {
+                new_column.child_at_coordinate(*new_area, state, new_area.x, y)
+            } else {
+                ColPos::default()
+            };
+        }
 
         self.clamp_selected(from, state)
     }
@@ -779,16 +776,16 @@ impl<S> Layout<S> {
     }
 
     /// Add an element to the last column of the view.
-    pub fn add_el(&mut self, el: Box<dyn ElSimp<S>>) {
+    pub fn add_el<E: ElSimp<S> + 'static>(&mut self, el: E) {
         if let Some(column) = self.columns.last_mut() {
-            column.elements.push(El::Simple(el));
+            column.elements.push(El::Simple(Box::new(el)));
         }
     }
 
     /// Add an element group to the last column of the view.
-    pub fn add_group(&mut self, group: Box<dyn ElGroup<S>>) {
+    pub fn add_group<E: ElGroup<S> + 'static>(&mut self, group: E) {
         if let Some(column) = self.columns.last_mut() {
-            column.elements.push(El::Group(group));
+            column.elements.push(El::Group(Box::new(group)));
         }
     }
 
@@ -828,19 +825,26 @@ mod test {
     use super::*;
 
     struct TestEl {
-        width: u16,
-        height: u16,
+        width: Constraint,
+        height: Constraint,
     }
 
     impl TestEl {
-        fn new(width: u16, height: u16) -> Self {
+        fn new(width: Constraint, height: Constraint) -> Self {
             Self { width, height }
+        }
+
+        fn fixed(width: u16, height: u16) -> Self {
+            Self {
+                width: Constraint::Length(width),
+                height: Constraint::Length(height),
+            }
         }
     }
 
     impl<S> ElSimp<S> for TestEl {
         fn dimensions(&self) -> Dims {
-            Dims::length(self.width, self.height)
+            Dims::new(self.width, self.height)
         }
 
         fn render(
@@ -858,6 +862,13 @@ mod test {
         }
     }
 
+    fn pos(col: usize, row: usize, row_col: usize) -> ElPos {
+        ElPos {
+            col,
+            pos: ColPos { row, row_col },
+        }
+    }
+
     #[test]
     fn test_centre_in() {
         let area = Rect::new(5, 5, 5, 5);
@@ -868,29 +879,109 @@ mod test {
 
     #[test]
     fn test_centre_of() {
-        let area = Rect::new(1, 1, 5, 10);
-        assert_eq!(centre_of(area), (3, 6));
+        assert_eq!(centre_of(Rect::new(1, 1, 5, 10)), (3, 6));
+        assert_eq!(centre_of(Rect::new(0, 6, 3, 4)), (1, 8));
     }
 
     #[test]
     fn test_navigate() {
         let mut layout = Layout::new();
-        layout.add_el(Box::new(TestEl::new(16, 64)));
+        layout.add_el(TestEl::fixed(16, 64));
         layout.add_column();
-        layout.add_el(Box::new(TestEl::new(16, 16)));
-        layout.add_el(Box::new(TestEl::new(16, 32)));
-        layout.add_el(Box::new(TestEl::new(16, 16)));
+        layout.add_el(TestEl::fixed(16, 16));
+        layout.add_el(TestEl::fixed(16, 32));
+        layout.add_el(TestEl::fixed(16, 16));
         layout.add_column();
-        layout.add_el(Box::new(TestEl::new(16, 48)));
-        layout.add_el(Box::new(TestEl::new(16, 16)));
+        layout.add_el(TestEl::fixed(16, 48));
+        layout.add_el(TestEl::fixed(16, 16));
 
         // Layout is 48 characters wide and 64 tall. x and y shouldn't matter
         // for navigation.
         let area = Rect::new(128, 128, 16 * 3, 64);
 
-        assert_eq!(
-            layout.navigate(area, &(), ElPos::default(), Navigation::Down),
-            ElPos::new(0, 1, 0)
-        );
+        let data = [
+            // First column has only one row, should not be able to navigate
+            // down or up.
+            (ElPos::default(), Navigation::Up, ElPos::default()),
+            (ElPos::default(), Navigation::Down, ElPos::default()),
+            // First column, should not be able to navigate left.
+            (ElPos::default(), Navigation::Left, ElPos::default()),
+            // Navigating to the right should move to the middle of the next
+            // column.
+            (ElPos::default(), Navigation::Right, pos(1, 1, 0)),
+            // Should be able to move up from middle cell to top middle cell.
+            (pos(1, 1, 0), Navigation::Up, pos(1, 0, 0)),
+            // Should be able to move down from middle cell to bottom middle.
+            (pos(1, 1, 0), Navigation::Down, pos(1, 2, 0)),
+            // Should be able to move left from middle cell to first column.
+            (pos(1, 1, 0), Navigation::Left, ElPos::default()),
+            // Should be able to move right from middle to top of right column.
+            (pos(1, 1, 0), Navigation::Right, pos(2, 0, 0)),
+            // Top middle.
+            (pos(1, 0, 0), Navigation::Up, pos(1, 0, 0)),
+            (pos(1, 0, 0), Navigation::Down, pos(1, 1, 0)),
+            (pos(1, 0, 0), Navigation::Left, pos(0, 0, 0)),
+            (pos(1, 0, 0), Navigation::Right, pos(2, 0, 0)),
+            // Bottom middle.
+            (pos(1, 2, 0), Navigation::Up, pos(1, 1, 0)),
+            (pos(1, 2, 0), Navigation::Down, pos(1, 2, 0)),
+            (pos(1, 2, 0), Navigation::Left, pos(0, 0, 0)),
+            (pos(1, 2, 0), Navigation::Right, pos(2, 1, 0)),
+            // Top right.
+            (pos(2, 0, 0), Navigation::Up, pos(2, 0, 0)),
+            (pos(2, 0, 0), Navigation::Down, pos(2, 1, 0)),
+            (pos(2, 0, 0), Navigation::Left, pos(1, 1, 0)),
+            (pos(2, 0, 0), Navigation::Right, pos(2, 0, 0)),
+            // Bottom right.
+            (pos(2, 1, 0), Navigation::Up, pos(2, 0, 0)),
+            (pos(2, 1, 0), Navigation::Down, pos(2, 1, 0)),
+            (pos(2, 1, 0), Navigation::Left, pos(1, 2, 0)),
+            (pos(2, 1, 0), Navigation::Right, pos(2, 1, 0)),
+        ];
+
+        for (from, nav, expected) in data {
+            let actual = layout.navigate(area, &(), from, nav);
+            if actual != expected {
+                dbg!(from);
+                dbg!(nav);
+            }
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn test_child_location() {
+        let mut layout = Layout::new();
+        layout.add_el(TestEl::new(Constraint::Fill(1), Constraint::Fill(1)));
+        layout.add_el(TestEl::new(Constraint::Fill(1), Constraint::Fill(1)));
+        layout.add_el(TestEl::new(Constraint::Fill(1), Constraint::Fill(1)));
+        layout.add_el(TestEl::new(Constraint::Fill(1), Constraint::Fill(2)));
+
+        let area = Rect::new(0, 0, 3, 10);
+        let column = layout.columns.first().unwrap();
+
+        let col_pos = ColPos { row: 0, row_col: 0 };
+        assert_eq!(column.child_pos(area, &(), col_pos), (1, 1));
+        assert_eq!(column.child_at_coordinate(area, &(), 1, 1), col_pos);
+        assert_eq!(column.child_at_coordinate(area, &(), 0, 0), col_pos);
+        assert_eq!(column.child_at_coordinate(area, &(), 2, 1), col_pos);
+
+        let col_pos = ColPos { row: 1, row_col: 0 };
+        assert_eq!(column.child_pos(area, &(), col_pos), (1, 3));
+        assert_eq!(column.child_at_coordinate(area, &(), 1, 3), col_pos);
+        assert_eq!(column.child_at_coordinate(area, &(), 0, 2), col_pos);
+        assert_eq!(column.child_at_coordinate(area, &(), 2, 3), col_pos);
+
+        let col_pos = ColPos { row: 2, row_col: 0 };
+        assert_eq!(column.child_pos(area, &(), col_pos), (1, 5));
+        assert_eq!(column.child_at_coordinate(area, &(), 1, 5), col_pos);
+        assert_eq!(column.child_at_coordinate(area, &(), 0, 4), col_pos);
+        assert_eq!(column.child_at_coordinate(area, &(), 2, 5), col_pos);
+
+        let col_pos = ColPos { row: 3, row_col: 0 };
+        assert_eq!(column.child_pos(area, &(), col_pos), (1, 8));
+        assert_eq!(column.child_at_coordinate(area, &(), 1, 8), col_pos);
+        assert_eq!(column.child_at_coordinate(area, &(), 0, 6), col_pos);
+        assert_eq!(column.child_at_coordinate(area, &(), 2, 9), col_pos);
     }
 }

@@ -9,21 +9,17 @@ impl SheetScene {
         let mut layout = view::Layout::new();
         stats::Stat::STATS
             .iter()
-            .for_each(|s| layout.add_el(Box::new(els::StatEl::new(*s))));
-        layout.add_group(Box::new(els::SkillsEl));
+            .for_each(|s| layout.add_el(els::StatEl::new(*s)));
+        layout.add_group(els::SkillsEl);
         layout.add_column();
-        layout.add_el(Box::new(els::TextEl::new(
-            "Name",
-            &|s| s.name.clone(),
-            &|s| {
-                Box::new(editors::StringEditorModal::new(
-                    "Name",
-                    s.name.clone(),
-                    Box::new(|value, state| state.name = value),
-                ))
-            },
-        )));
-        layout.add_el(Box::new(els::TextEl::new(
+        layout.add_el(els::TextEl::new("Name", &|s| s.name.clone(), &|s| {
+            Box::new(editors::StringEditorModal::new(
+                "Name",
+                s.name.clone(),
+                Box::new(|value, state| state.name = value),
+            ))
+        }));
+        layout.add_el(els::TextEl::new(
             "Level",
             &|s| format!("Level {}", s.level),
             &|s| {
@@ -33,7 +29,8 @@ impl SheetScene {
                     Box::new(|level, state| state.level = level),
                 ))
             },
-        )));
+        ));
+        layout.add_group(els::Dice);
         Self { layout }
     }
 }

@@ -8,10 +8,9 @@ use ratatui::{
 use tui_input::backend::crossterm::EventHandler;
 
 use crate::{
-    HandleResult,
-    els::{self, BORDER},
+    els::{self, BORDER, State},
     roll, stats,
-    view::{self, Dims, ElSimp, Scene, State},
+    view::{self, Dims, ElSimp, Handler, Scene},
 };
 
 #[derive(Clone)]
@@ -62,7 +61,7 @@ impl<T: std::fmt::Display + Default + Clone> CellDisplay<T> {
     }
 }
 
-impl<T: std::fmt::Display + Default + Clone> ElSimp for CellDisplay<T> {
+impl<T: std::fmt::Display + Default + Clone> ElSimp<State> for CellDisplay<T> {
     fn dimensions(&self) -> Dims {
         Dims::new(
             Constraint::Length(self.show().len() as u16),
@@ -90,7 +89,7 @@ struct StringEditor {
     value: EditorState<String>,
 }
 
-impl ElSimp for StringEditor {
+impl ElSimp<State> for StringEditor {
     fn dimensions(&self) -> Dims {
         Dims::new(Constraint::Min(16), Constraint::Length(3))
     }
@@ -107,7 +106,7 @@ impl ElSimp for StringEditor {
 }
 
 pub struct StringEditorModal {
-    layout: view::Layout,
+    layout: view::Layout<State>,
     apply_to_state: EditorSubmitHandler<String>,
     value: EditorState<String>,
     input: tui_input::Input,
@@ -125,7 +124,7 @@ impl StringEditorModal {
             value: value.clone(),
         };
         let mut layout = view::Layout::new();
-        layout.add_el(Box::new(el));
+        layout.add_el(el);
         let layout = layout.modal(
             title,
             Dims::new(Constraint::Min(24), Constraint::Length(1 + BORDER)),
@@ -141,8 +140,8 @@ impl StringEditorModal {
     }
 }
 
-impl Scene for StringEditorModal {
-    fn layout(&self) -> &view::Layout {
+impl Scene<State> for StringEditorModal {
+    fn layout(&self) -> &view::Layout<State> {
         &self.layout
     }
 
@@ -151,12 +150,12 @@ impl Scene for StringEditorModal {
         event: Event,
         state: &mut State,
         _selected: view::ElPos,
-    ) -> HandleResult {
+    ) -> Handler {
         if let Event::Key(evt) = event
             && evt.kind == KeyEventKind::Press
         {
             let result = self.handle_key_press(evt.code, state);
-            if !matches!(result, HandleResult::Default) {
+            if !matches!(result, Handler::Default) {
                 return result;
             }
         }
@@ -166,24 +165,20 @@ impl Scene for StringEditorModal {
                 if changes.value {
                     self.value.set(self.input.value().to_string());
                 }
-                HandleResult::Consume
+                Handler::Consume
             }
-            None => HandleResult::Default,
+            None => Handler::Default,
         }
     }
 
-    fn handle_key_press(
-        &mut self,
-        key: KeyCode,
-        state: &mut State,
-    ) -> HandleResult {
+    fn handle_key_press(&mut self, key: KeyCode, state: &mut State) -> Handler {
         match key {
             KeyCode::Enter => {
                 (self.apply_to_state)(self.value.get(), state);
-                HandleResult::Close
+                Handler::Close
             }
-            KeyCode::Esc => HandleResult::Close,
-            _ => HandleResult::Default,
+            KeyCode::Esc => Handler::Close,
+            _ => Handler::Default,
         }
     }
 }
@@ -209,7 +204,7 @@ impl SkillProficiencyEditor {
     }
 }
 
-impl ElSimp for SkillProficiencyEditor {
+impl ElSimp<State> for SkillProficiencyEditor {
     fn dimensions(&self) -> Dims {
         Dims::new(
             Constraint::Min(self.skill.len() as u16 + BORDER),
@@ -235,7 +230,7 @@ impl ElSimp for SkillProficiencyEditor {
 }
 
 pub struct SkillModal {
-    layout: view::Layout,
+    layout: view::Layout<State>,
     skill: String,
     eds: EditorState<stats::Proficiency>,
 }
@@ -250,7 +245,7 @@ impl SkillModal {
         let (eds, editor) = SkillProficiencyEditor::new(skill, prof);
         let (width, height) = editor.dimensions().into();
         let mut layout = view::Layout::new();
-        layout.add_el(Box::new(editor));
+        layout.add_el(editor);
         Self {
             layout: layout.modal(skill, view::Dims::new(width, height), false),
             skill: skill.to_string(),
@@ -259,33 +254,29 @@ impl SkillModal {
     }
 }
 
-impl Scene for SkillModal {
-    fn layout(&self) -> &view::Layout {
+impl Scene<State> for SkillModal {
+    fn layout(&self) -> &view::Layout<State> {
         &self.layout
     }
 
-    fn handle_key_press(
-        &mut self,
-        key: KeyCode,
-        state: &mut State,
-    ) -> HandleResult {
+    fn handle_key_press(&mut self, key: KeyCode, state: &mut State) -> Handler {
         if key == KeyCode::Enter {
             if let Some(skill) = state.skills.lookup_mut(&self.skill) {
                 skill.proficiency = self.eds.get();
             }
-            return HandleResult::Close;
+            return Handler::Close;
         }
 
         match view::Navigation::from_key_code(key) {
             Some(view::Navigation::Up) => {
                 self.eds.update(|p| p.decrease());
-                HandleResult::Consume
+                Handler::Consume
             }
             Some(view::Navigation::Down) => {
                 self.eds.update(|p| p.increase());
-                HandleResult::Consume
+                Handler::Consume
             }
-            _ => HandleResult::Default,
+            _ => Handler::Default,
         }
     }
 }
@@ -301,7 +292,7 @@ impl IntEditor {
     }
 }
 
-impl ElSimp for IntEditor {
+impl ElSimp<State> for IntEditor {
     fn dimensions(&self) -> Dims {
         Dims::new(
             Constraint::Length(self.state.get().to_string().len() as u16 + 4),
@@ -324,7 +315,7 @@ impl ElSimp for IntEditor {
 }
 
 pub struct IntEditorModal {
-    layout: view::Layout,
+    layout: view::Layout<State>,
     eds: EditorState<i64>,
     handler: EditorSubmitHandler<i64>,
 }
@@ -341,7 +332,7 @@ impl IntEditorModal {
             Constraint::Length(1 + BORDER),
         );
         let mut layout = view::Layout::new();
-        layout.add_el(Box::new(editor));
+        layout.add_el(editor);
         Self {
             layout: layout.modal(title, dimensions, false),
             eds,
@@ -350,36 +341,32 @@ impl IntEditorModal {
     }
 }
 
-impl Scene for IntEditorModal {
-    fn layout(&self) -> &view::Layout {
+impl Scene<State> for IntEditorModal {
+    fn layout(&self) -> &view::Layout<State> {
         &self.layout
     }
 
-    fn handle_key_press(
-        &mut self,
-        key: KeyCode,
-        state: &mut State,
-    ) -> HandleResult {
+    fn handle_key_press(&mut self, key: KeyCode, state: &mut State) -> Handler {
         if key == KeyCode::Enter {
             (self.handler)(self.eds.get(), state);
-            return HandleResult::Close;
+            return Handler::Close;
         }
 
         match view::Navigation::from_key_code(key) {
             Some(view::Navigation::Left) => {
                 self.eds.update(|s| s - 1);
-                HandleResult::Consume
+                Handler::Consume
             }
             Some(view::Navigation::Right) => {
                 self.eds.update(|s| s + 1);
-                HandleResult::Consume
+                Handler::Consume
             }
-            _ => HandleResult::Default,
+            _ => Handler::Default,
         }
     }
 }
 
-pub fn stat_modal(stat: stats::Stat, state: &State) -> Box<dyn Scene> {
+pub fn stat_modal(stat: stats::Stat, state: &State) -> Box<dyn Scene<State>> {
     let score = state.stats.score(stat);
     let mut modal = IntEditorModal::new(
         "",
@@ -389,7 +376,7 @@ pub fn stat_modal(stat: stats::Stat, state: &State) -> Box<dyn Scene> {
     let modifier = CellDisplay::new(modal.eds.clone(), &|score| {
         els::format_modifier(stats::Stat::modifier(score))
     });
-    modal.layout.add_el(Box::new(modifier));
+    modal.layout.add_el(modifier);
     let dimensions = Dims::new(
         Constraint::Length(2 + 2 + 2 + BORDER),
         Constraint::Length(2 + BORDER),
@@ -400,7 +387,7 @@ pub fn stat_modal(stat: stats::Stat, state: &State) -> Box<dyn Scene> {
 
 pub struct RollModal {
     outcome: roll::RollOutcome,
-    layout: view::Layout,
+    layout: view::Layout<State>,
 }
 
 impl RollModal {
@@ -417,7 +404,7 @@ impl RollModal {
         let width = Constraint::Length(width);
         let height = Constraint::Length(2 + BORDER);
         let dimensions = Dims::new(width, height);
-        layout.add_el(Box::new(element));
+        layout.add_el(element);
         Self {
             layout: layout.modal("Roll", dimensions, false),
             outcome,
@@ -425,8 +412,8 @@ impl RollModal {
     }
 }
 
-impl Scene for RollModal {
-    fn layout(&self) -> &view::Layout {
+impl Scene<State> for RollModal {
+    fn layout(&self) -> &view::Layout<State> {
         &self.layout
     }
 
@@ -434,7 +421,7 @@ impl Scene for RollModal {
         &mut self,
         _key: KeyCode,
         _state: &mut State,
-    ) -> HandleResult {
-        HandleResult::Default
+    ) -> Handler {
+        Handler::Default
     }
 }
