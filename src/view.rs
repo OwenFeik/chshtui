@@ -156,6 +156,18 @@ pub trait ElGroup<S> {
     /// Direction the group of elements is arranged in.
     fn direction(&self) -> Direction;
 
+    /// Return the number of child elements in this group, for selection
+    /// handling.
+    fn child_count(&self, state: &S) -> usize;
+
+    /// Calculate and return the centre point of the child at the selected
+    /// index when this element group is rendered in the provided area.
+    fn child_pos(&self, area: Rect, state: &S, selected: usize) -> (u16, u16);
+
+    /// Return the index of the child at the provided (x, y) position if this
+    /// element group is rendered in the provided area.
+    fn child_at_pos(&self, area: Rect, state: &S, x: u16, y: u16) -> usize;
+
     /// Render this group of elements into the provided area, based on the
     /// current state. If any element in the group is selected, its index
     /// within the group will be provided, otherwise selected will be None.
@@ -203,18 +215,6 @@ pub trait ElGroup<S> {
     fn handle_select(&self, _state: &S, _selected: usize) -> HandleResult<S> {
         HandleResult::Default
     }
-
-    /// Return the number of child elements in this group, for selection
-    /// handling.
-    fn child_count(&self, state: &S) -> usize;
-
-    /// Calculate and return the centre point of the child at the selected
-    /// index when this element group is rendered in the provided area.
-    fn child_pos(&self, area: Rect, state: &S, selected: usize) -> (u16, u16);
-
-    /// Return the index of the child at the provided (x, y) position if this
-    /// element group is rendered in the provided area.
-    fn child_at_pos(&self, area: Rect, state: &S, x: u16, y: u16) -> usize;
 }
 
 /// Elements which can appear in view columns. Each element is either a simple
@@ -482,10 +482,7 @@ impl<S> Column<S> {
 
         // y is past the end of the last element. Return the position of the
         // last element.
-        ColPos {
-            row: self.elements.len().saturating_sub(1),
-            row_col: 0,
-        }
+        ColPos { row, row_col: 0 }
     }
 }
 
@@ -983,5 +980,41 @@ mod test {
         assert_eq!(column.child_at_coordinate(area, &(), 1, 8), col_pos);
         assert_eq!(column.child_at_coordinate(area, &(), 0, 6), col_pos);
         assert_eq!(column.child_at_coordinate(area, &(), 2, 9), col_pos);
+    }
+
+    #[test]
+    fn test_navigate_table() {
+        let mut layout = Layout::new();
+        layout.add_group(crate::els::RollHistory::new(10));
+
+        let area = Rect::new(0, 0, 32, 64);
+
+        // Add rolls to the state for the roll history element to display.
+        let mut state = crate::SheetState::default();
+        (0..7).for_each(|_| {
+            state.rolls.push(crate::roll::Roll::new(1, 1).resolve())
+        });
+
+        let mut at = ElPos::default();
+        assert_eq!(layout.navigate(area, &state, at, Navigation::Up), at);
+        assert_eq!(layout.navigate(area, &state, at, Navigation::Left), at);
+        assert_eq!(layout.navigate(area, &state, at, Navigation::Right), at);
+
+        // Navigate down through the seven rolls we added to the state.
+        for i in 0..7 {
+            at = layout.navigate(area, &state, at, Navigation::Down);
+            assert_eq!(at, pos(0, i + 1, 0));
+        }
+
+        // Shouldn't be able to navigate down, left or right from the last one.
+        assert_eq!(layout.navigate(area, &state, at, Navigation::Down), at);
+        assert_eq!(layout.navigate(area, &state, at, Navigation::Left), at);
+        assert_eq!(layout.navigate(area, &state, at, Navigation::Right), at);
+
+        // Should be able to navigate back up.
+        assert_eq!(
+            layout.navigate(area, &state, at, Navigation::Up),
+            pos(0, 5, 0)
+        );
     }
 }

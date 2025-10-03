@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Direction, Position, Rect},
     style::{Color, Stylize},
     text::{Line, ToLine},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
+    widgets::{Block, Cell, Paragraph, Row, Table},
 };
 
 use crate::{
@@ -389,5 +389,89 @@ impl ElGroup<State> for Dice {
 
     fn handle_select(&self, state: &State, selected: usize) -> Handler {
         self.handle_roll(state, selected)
+    }
+}
+
+pub struct RollHistory {
+    max_rolls_to_display: usize,
+}
+
+impl RollHistory {
+    pub fn new(max_rolls_to_display: usize) -> Self {
+        Self {
+            max_rolls_to_display,
+        }
+    }
+}
+
+impl ElGroup<State> for RollHistory {
+    fn dimensions(&self, state: &State) -> Dims {
+        Dims::new(
+            Constraint::Fill(1),
+            Constraint::Length(
+                state.rolls.len().min(self.max_rolls_to_display) as u16
+                    + 1 // Header
+                    + BORDER,
+            ),
+        )
+    }
+
+    fn direction(&self) -> Direction {
+        Direction::Vertical
+    }
+
+    fn child_count(&self, state: &State) -> usize {
+        state.rolls.len().min(self.max_rolls_to_display)
+    }
+
+    fn child_pos(
+        &self,
+        area: Rect,
+        _state: &State,
+        selected: usize,
+    ) -> (u16, u16) {
+        let x = area.x + area.width / 2;
+        let y = area.y + 1 + BORDER / 2 + selected as u16;
+        (x, y)
+    }
+
+    fn child_at_pos(
+        &self,
+        area: Rect,
+        state: &State,
+        _x: u16,
+        y: u16,
+    ) -> usize {
+        let y_offset = y.saturating_sub(area.y + 1 + BORDER / 2);
+        (y_offset as usize)
+            .min(state.rolls.len().min(self.max_rolls_to_display))
+    }
+
+    fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        state: &State,
+        selected: Option<usize>,
+    ) {
+        let rows = state
+            .rolls
+            .iter()
+            .rev()
+            .take(self.max_rolls_to_display)
+            .enumerate()
+            .map(|(i, oc)| {
+                let r = Row::new([
+                    oc.format_roll(),
+                    oc.format_results(),
+                    oc.format_value(),
+                ]);
+                style_selected(r, selected == Some(i))
+            });
+        let table = Table::default()
+            .header(Row::new(["Roll", "Results", "Total"]))
+            .rows(rows)
+            .block(Block::bordered());
+        frame.render_widget(table, area);
     }
 }

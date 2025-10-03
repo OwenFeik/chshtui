@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RollSuff {
     None,
     Advantage,
@@ -17,7 +17,7 @@ impl RollSuff {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RollOp {
     Add,
     Sub,
@@ -45,7 +45,7 @@ impl RollOp {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct RollMod {
     op: RollOp,
     amount: f64,
@@ -66,7 +66,7 @@ impl RollMod {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Roll {
     quantity: u32,
     size: u32,
@@ -152,6 +152,7 @@ impl Roll {
     }
 }
 
+#[derive(Clone)]
 pub struct RollOutcome {
     roll: Roll,
     results: Vec<u32>,

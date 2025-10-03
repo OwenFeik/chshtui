@@ -417,11 +417,13 @@ impl Scene<State> for RollModal {
         &self.layout
     }
 
-    fn handle_key_press(
-        &mut self,
-        _key: KeyCode,
-        _state: &mut State,
-    ) -> Handler {
-        Handler::Default
+    fn handle_key_press(&mut self, key: KeyCode, state: &mut State) -> Handler {
+        match key {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => {
+                state.rolls.push(self.outcome.clone());
+                Handler::Close
+            }
+            _ => Handler::Default,
+        }
     }
 }

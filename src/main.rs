@@ -19,6 +19,7 @@ struct SheetState {
     level: i64,
     stats: stats::Stats,
     skills: stats::Skills,
+    rolls: Vec<roll::RollOutcome>,
 }
 
 struct SceneStackItem {
