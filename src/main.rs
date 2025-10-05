@@ -1,7 +1,7 @@
 use ratatui::{
     crossterm::{
         self,
-        event::{Event, KeyCode, KeyEventKind},
+        event::{Event, KeyCode, KeyEventKind, MouseEventKind},
     },
     prelude::*,
 };
@@ -107,10 +107,26 @@ impl App {
     }
 
     fn handle(&mut self, event: Event) {
-        if let Event::Key(evt) = event {
-            if evt.kind == KeyEventKind::Press {
-                self.handle_key_press(evt.code);
+        match event {
+            Event::Key(evt) => {
+                if evt.kind == KeyEventKind::Press {
+                    self.handle_key_press(evt.code);
+                }
             }
+            Event::Mouse(evt) => {
+                if let MouseEventKind::Down(_) = evt.kind {
+                    let active = self.active_scene();
+                    let area = active.dimensions;
+                    let position = active.scene.layout().element_at_coordinate(
+                        area,
+                        &self.state,
+                        evt.column,
+                        evt.row,
+                    );
+                    self.active_scene_mut().position = position;
+                }
+            }
+            _ => (),
         }
     }
 

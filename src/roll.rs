@@ -164,6 +164,10 @@ impl RollOutcome {
         self.roll
     }
 
+    pub fn clone_roll(&self) -> Roll {
+        self.roll.clone()
+    }
+
     pub fn format_roll(&self) -> String {
         self.roll.format()
     }

@@ -610,6 +610,25 @@ impl<S> Layout<S> {
         self.columns.iter().zip(areas)
     }
 
+    /// Return the position of the element at the provided coordinates.
+    pub fn element_at_coordinate(
+        &self,
+        area: Rect,
+        state: &S,
+        x: u16,
+        y: u16,
+    ) -> ElPos {
+        for (col, (column, column_area)) in
+            self.iter_layout(state, area).enumerate()
+        {
+            if column_area.contains(Position::new(x, y)) {
+                let pos = column.child_at_coordinate(area, state, x, y);
+                return ElPos { col, pos };
+            }
+        }
+        ElPos::default()
+    }
+
     /// Clamp the provided selected element to fall into valid selection
     /// indices.
     fn clamp_selected(&self, selected: ElPos, state: &S) -> ElPos {

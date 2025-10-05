@@ -474,4 +474,17 @@ impl ElGroup<State> for RollHistory {
             .block(Block::bordered());
         frame.render_widget(table, area);
     }
+
+    fn handle_select(&self, state: &State, selected: usize) -> Handler {
+        self.handle_roll(state, selected)
+    }
+
+    fn handle_roll(&self, state: &State, selected: usize) -> Handler {
+        let index = state.rolls.len().saturating_sub(selected + 1);
+        if let Some(roll) = state.rolls.get(index) {
+            Handler::Open(Box::new(editors::RollModal::new(roll.clone_roll())))
+        } else {
+            Handler::Default
+        }
+    }
 }
