@@ -2,7 +2,16 @@ use std::collections::HashMap;
 
 use crate::SheetState;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum Stat {
     Strength,
     Dexterity,
@@ -36,6 +45,7 @@ impl Stat {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Stats(HashMap<Stat, i64>);
 
 impl Stats {
@@ -65,7 +75,9 @@ impl Default for Stats {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize,
+)]
 pub enum Proficiency {
     Untrained,
     Trained,
@@ -123,6 +135,7 @@ impl Default for Proficiency {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Skill {
     pub name: String,
     pub stat: Stat,
@@ -143,6 +156,7 @@ impl Skill {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Skills(pub Vec<Skill>);
 
 impl Skills {
@@ -168,6 +182,7 @@ impl Default for Skills {
             Skill::new("Medicine", Stat::Wisdom),
             Skill::new("Nature", Stat::Wisdom),
             Skill::new("Occultism", Stat::Intelligence),
+            Skill::new("Perception", Stat::Wisdom),
             Skill::new("Performance", Stat::Charisma),
             Skill::new("Religion", Stat::Wisdom),
             Skill::new("Society", Stat::Intelligence),

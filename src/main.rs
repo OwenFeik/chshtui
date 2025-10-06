@@ -13,12 +13,14 @@ mod scenes;
 mod stats;
 mod view;
 
-#[derive(Default)]
+#[derive(Default, serde::Deserialize, serde::Serialize)]
 struct SheetState {
     name: String,
     level: i64,
     stats: stats::Stats,
     skills: stats::Skills,
+
+    #[serde(skip)]
     rolls: Vec<roll::RollOutcome>,
 }
 
@@ -44,12 +46,9 @@ struct App {
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(state: SheetState) -> Self {
         Self {
-            state: SheetState {
-                name: "Character".to_string(),
-                ..Default::default()
-            },
+            state,
             scene_stack: vec![SceneStackItem::new(Box::new(
                 scenes::SheetScene::new(),
             ))],
@@ -165,10 +164,51 @@ impl App {
 }
 
 fn main() -> std::io::Result<()> {
+    let save_file = match std::env::args().nth(1) {
+        Some(path) => path.to_string(),
+        None => "character.json".to_string(),
+    };
+
+    let state = match std::fs::File::open(&save_file) {
+        Ok(file) => match serde_json::de::from_reader(file) {
+            Ok(state) => state,
+            Err(e) => {
+                eprintln!("failed to parse save json {save_file}, error: {e}");
+                std::process::exit(1);
+            }
+        },
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            SheetState::default()
+        }
+        Err(e) => {
+            eprintln!("failed to read save data from {save_file}, error: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let mut app = App::new(state);
+
     let mut term = ratatui::init();
     crossterm::execute!(std::io::stdout(), crossterm::cursor::Hide).ok();
-    let result = App::new().run(&mut term);
+    let result = app.run(&mut term);
     ratatui::restore();
     crossterm::execute!(std::io::stdout(), crossterm::cursor::Show).ok();
+
+    match serde_json::ser::to_string(&app.state) {
+        Ok(json) => match std::fs::write(&save_file, json) {
+            Ok(_) => println!("saved to {save_file}"),
+            Err(e) => {
+                eprintln!(
+                    "failed to save character sheet to {save_file}, error: {e}"
+                );
+                std::process::exit(1);
+            }
+        },
+        Err(e) => {
+            eprintln!("failed to format character sheet as json, error: {e}");
+            std::process::exit(1);
+        }
+    }
+
     result
 }
