@@ -7,10 +7,10 @@ use ratatui::{
 };
 
 use crate::{
-    SheetState, editors, els,
+    Handler, SheetState, editors, els,
     roll::{self, Roll},
     stats::{self, Stat},
-    view::{self, Dims, ElGroup, ElSimp, Handler, centre_of},
+    view::{self, Dims, ElGroup, ElSimp, centre_of},
 };
 
 pub const BORDER: u16 = 2;
@@ -26,6 +26,33 @@ pub fn style_selected<'a, T: 'a + Stylize<'a, T>>(
         widget.fg(Color::Black).bg(Color::White)
     } else {
         widget
+    }
+}
+
+pub struct Text(String);
+
+impl Text {
+    pub fn new(text: impl ToString) -> Self {
+        Self(text.to_string())
+    }
+}
+
+impl<T> ElSimp<T> for Text {
+    fn dimensions(&self) -> Dims {
+        Dims::new(
+            Constraint::Length(self.0.len() as u16),
+            Constraint::Length(1),
+        )
+    }
+
+    fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        _state: &T,
+        _selected: bool,
+    ) {
+        frame.render_widget(self.0.to_line(), area);
     }
 }
 
@@ -66,8 +93,10 @@ impl ElSimp<State> for TextEl {
         selected: bool,
     ) {
         let text = (self.get)(state);
-        let widget = Paragraph::new(style_selected(text.to_line(), selected))
-            .block(Block::bordered().title(self.title.as_str()));
+        let widget = Paragraph::new(text.to_line()).block(
+            Block::bordered()
+                .title(style_selected(self.title.to_line(), selected)),
+        );
         frame.render_widget(widget, area);
     }
 
@@ -102,13 +131,14 @@ impl ElSimp<State> for StatEl {
         let modifier = Stat::modifier(value);
         let modtext = format_modifier(modifier);
         let paragraph = Paragraph::new(vec![
-            style_selected(Line::from(value.to_string()), selected),
-            style_selected(Line::from(modtext), selected),
+            Line::from(value.to_string()),
+            Line::from(modtext),
         ]);
 
-        let widget = paragraph
-            .centered()
-            .block(Block::bordered().title(stat.short()));
+        let title = stat.short();
+        let widget = paragraph.centered().block(
+            Block::bordered().title(style_selected(title.to_line(), selected)),
+        );
         frame.render_widget(widget, area);
     }
 
@@ -299,18 +329,21 @@ impl Dice {
     fn iter_layout(
         &self,
         area: Rect,
-    ) -> impl Iterator<Item = (usize, Rect, u32)> {
+    ) -> impl Iterator<Item = (usize, Rect, String)> {
+        let mut labels: Vec<String> =
+            Self::DICE.iter().map(|d| format!("d{d}")).collect();
+        labels.push("Custom".to_string());
         let areas = ratatui::prelude::Layout::new(
             Direction::Horizontal,
-            vec![Constraint::Fill(1); Dice::DICE.len()],
+            vec![Constraint::Fill(1); Dice::DICE.len() + 1],
         )
         .split(area)
         .to_vec();
-        areas
+        labels
             .into_iter()
-            .zip(Dice::DICE)
+            .zip(areas)
             .enumerate()
-            .map(|(i, (area, d))| (i, area, *d))
+            .map(|(i, (label, area))| (i, area, label))
     }
 }
 
@@ -333,15 +366,14 @@ impl ElGroup<State> for Dice {
         _state: &State,
         selected: Option<usize>,
     ) {
-        for (i, area, d) in self.iter_layout(area) {
+        for (i, area, label) in self.iter_layout(area) {
             let area = if i == Dice::DICE.len() - 1 {
                 area
             } else {
                 Rect::new(area.x, area.y, area.width + 1, area.height)
             };
-            let text = format!("d{d}");
             let widget = Paragraph::new(style_selected(
-                text.to_line(),
+                label.to_line(),
                 selected == Some(i),
             ))
             .block(Block::bordered());
@@ -350,7 +382,7 @@ impl ElGroup<State> for Dice {
     }
 
     fn child_count(&self, _state: &State) -> usize {
-        Dice::DICE.len()
+        Dice::DICE.len() + 1
     }
 
     fn child_pos(
@@ -383,8 +415,12 @@ impl ElGroup<State> for Dice {
     }
 
     fn handle_roll(&self, _state: &State, selected: usize) -> Handler {
-        let d = Dice::DICE.get(selected).copied().unwrap_or(20);
-        Handler::Open(Box::new(editors::RollModal::new(Roll::new(1, d))))
+        if let Some(d) = Dice::DICE.get(selected).copied() {
+            Handler::Open(Box::new(editors::RollModal::new(Roll::new(1, d))))
+        } else {
+            // Custom
+            Handler::Open(Box::new(editors::RollEditorModal::new()))
+        }
     }
 
     fn handle_select(&self, state: &State, selected: usize) -> Handler {

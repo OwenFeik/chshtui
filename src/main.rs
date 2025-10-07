@@ -24,6 +24,9 @@ struct SheetState {
     rolls: Vec<roll::RollOutcome>,
 }
 
+/// Handler for an input event.
+type Handler = view::HandleResult<SheetState>;
+
 struct SceneStackItem {
     scene: Box<dyn view::Scene<SheetState>>,
     dimensions: Rect,
@@ -84,7 +87,7 @@ impl App {
             &mut self.state,
             active.position,
         );
-        if matches!(outcome, view::Handler::Default) {
+        if matches!(outcome, Handler::Default) {
             self.handle(event);
         } else {
             self.process_handle_result(outcome);
@@ -92,13 +95,17 @@ impl App {
         Ok(())
     }
 
-    fn process_handle_result(&mut self, res: view::Handler) {
-        use view::Handler;
+    fn process_handle_result(&mut self, res: Handler) {
         match res {
             Handler::Close => {
                 self.scene_stack.pop();
             }
             Handler::Open(scene) => {
+                self.scene_stack.push(SceneStackItem::new(scene))
+            }
+
+            Handler::Replace(scene) => {
+                self.scene_stack.pop();
                 self.scene_stack.push(SceneStackItem::new(scene))
             }
             Handler::Consume | Handler::Default => {}

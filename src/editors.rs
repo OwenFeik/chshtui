@@ -8,10 +8,37 @@ use ratatui::{
 use tui_input::backend::crossterm::EventHandler;
 
 use crate::{
+    Handler,
     els::{self, BORDER, State},
     roll, stats,
-    view::{self, Dims, ElSimp, Handler, Scene},
+    view::{self, Dims, ElSimp, Scene},
 };
+
+struct MessageBox<T> {
+    layout: view::Layout<T>,
+}
+
+impl<T> MessageBox<T> {
+    fn new(message: impl ToString) -> MessageBox<T> {
+        let mut layout = view::Layout::new();
+        let message = message.to_string();
+        let length = message.len();
+        let text = els::Text::new(message);
+        layout.add_el(text);
+        let layout = layout.modal(
+            "Message",
+            Dims::length(length as u16 + BORDER, 1 + BORDER),
+            false,
+        );
+        Self { layout }
+    }
+}
+
+impl<T> Scene<T> for MessageBox<T> {
+    fn layout(&self) -> &view::Layout<T> {
+        &self.layout
+    }
+}
 
 #[derive(Clone)]
 struct EditorState<T: Clone + Default> {
@@ -423,6 +450,84 @@ impl Scene<State> for RollModal {
                 state.rolls.push(self.outcome.clone());
                 Handler::Close
             }
+            _ => Handler::Default,
+        }
+    }
+}
+
+pub struct RollEditorModal {
+    layout: view::Layout<State>,
+    value: EditorState<String>,
+    input: tui_input::Input,
+}
+
+impl RollEditorModal {
+    pub fn new() -> Self {
+        let input = tui_input::Input::default();
+        let value = EditorState::new(String::new());
+        let el = StringEditor {
+            value: value.clone(),
+        };
+        let mut layout = view::Layout::new();
+        layout.add_el(el);
+        let layout = layout.modal(
+            "Roll",
+            Dims::new(Constraint::Min(24), Constraint::Length(1 + BORDER)),
+            false,
+        );
+
+        Self {
+            layout,
+            value,
+            input,
+        }
+    }
+}
+
+impl Scene<State> for RollEditorModal {
+    fn layout(&self) -> &view::Layout<State> {
+        &self.layout
+    }
+
+    fn handle(
+        &mut self,
+        event: Event,
+        state: &mut State,
+        _selected: view::ElPos,
+    ) -> Handler {
+        if let Event::Key(evt) = event
+            && evt.kind == KeyEventKind::Press
+        {
+            let result = self.handle_key_press(evt.code, state);
+            if !matches!(result, Handler::Default) {
+                return result;
+            }
+        }
+
+        match self.input.handle_event(&event) {
+            Some(changes) => {
+                if changes.value {
+                    self.value.set(self.input.value().to_string());
+                }
+                Handler::Consume
+            }
+            None => Handler::Default,
+        }
+    }
+
+    fn handle_key_press(
+        &mut self,
+        key: KeyCode,
+        _state: &mut State,
+    ) -> Handler {
+        match key {
+            KeyCode::Enter => match roll::Roll::parse(&self.value.get()) {
+                Some(roll) => Handler::Replace(Box::new(RollModal::new(roll))),
+                None => Handler::Replace(Box::new(MessageBox::new(
+                    "Failed to parse roll.",
+                ))),
+            },
+            KeyCode::Esc => Handler::Close,
             _ => Handler::Default,
         }
     }

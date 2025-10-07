@@ -5,14 +5,22 @@ use ratatui::{
     widgets::{Block, Clear},
 };
 
-use crate::SheetState;
-
-pub type Handler = HandleResult<SheetState>;
-
+/// Result of handling a terminal event.
 pub enum HandleResult<S> {
+    /// Pop current scene off the scene stack.
     Close,
+
+    /// Add a new scene to the scene stack above the current.
     Open(Box<dyn Scene<S>>),
+
+    /// Pop the current scene off the scene stack and replace by a new one.
+    Replace(Box<dyn Scene<S>>),
+
+    /// Input was used to update internal state of the element or scene.
     Consume,
+
+    /// Event should be handled in the default way (standard navigation, exit,
+    /// etc.).
     Default,
 }
 
@@ -77,6 +85,13 @@ impl Dims {
         Dims {
             x: width,
             y: height,
+        }
+    }
+
+    pub fn length(width: u16, height: u16) -> Self {
+        Self {
+            x: Constraint::Length(width),
+            y: Constraint::Length(height),
         }
     }
 

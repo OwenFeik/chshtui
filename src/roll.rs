@@ -84,6 +84,10 @@ impl Roll {
         }
     }
 
+    pub fn parse(text: &str) -> Option<Self> {
+        parse_roll(text)
+    }
+
     pub fn plus(mut self, amount: f64) -> Self {
         self.mods.push(RollMod {
             op: RollOp::Add,
