@@ -10,6 +10,7 @@ mod editors;
 mod els;
 mod roll;
 mod scenes;
+mod spells;
 mod stats;
 mod view;
 
