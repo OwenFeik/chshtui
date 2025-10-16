@@ -8,11 +8,14 @@ use ratatui::{
 
 mod editors;
 mod els;
+mod fs;
 mod roll;
 mod scenes;
 mod spells;
 mod stats;
 mod view;
+
+const APP_NAME: &str = "chshtui";
 
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 struct SheetState {

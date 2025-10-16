@@ -1,4 +1,6 @@
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize,
+)]
 enum RollSuff {
     None,
     Advantage,
@@ -17,7 +19,9 @@ impl RollSuff {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize,
+)]
 enum RollOp {
     Add,
     Sub,
@@ -45,7 +49,7 @@ impl RollOp {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct RollMod {
     op: RollOp,
     amount: f64,
@@ -66,7 +70,7 @@ impl RollMod {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Roll {
     quantity: u32,
     size: u32,
