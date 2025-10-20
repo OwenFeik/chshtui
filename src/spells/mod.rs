@@ -1,4 +1,6 @@
-use crate::{fs, roll};
+use crate::fs;
+
+mod widget;
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Rarity {
@@ -22,6 +24,28 @@ impl Rarity {
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 enum Glyph {
     OneAction,
+    Unknown,
+}
+
+impl Glyph {
+    fn parse(name: &str) -> Self {
+        match name {
+            "action-glyph" => Self::OneAction,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct SpellDescTableRow {
+    cells: Vec<Vec<SpellDescEl>>,
+}
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct SpellDescTable {
+    head: Option<SpellDescTableRow>,
+    body: Vec<SpellDescTableRow>,
+    foot: Option<SpellDescTableRow>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -32,8 +56,7 @@ enum SpellDescEl {
     Italic(String),
     Glyph(Glyph),
     List(Vec<Vec<SpellDescEl>>),
-    Table(Option<Vec<String>>, Vec<Vec<String>>),
-    Divider,
+    Table(SpellDescTable),
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -106,23 +129,153 @@ struct SpellsDataEntry {
     publication: String,
 }
 
-fn parse_xml_description(desc: String) -> SpellDescription {
+fn parse_xml_description(desc: impl std::io::Read) -> SpellDescription {
     use xml::reader::XmlEvent::*;
+    type El = SpellDescEl;
 
+    let mut attr_stack = Vec::new();
     let mut els = Vec::new();
-    for event in xml::EventReader::new(desc.as_bytes()) {
+    let mut text = String::new();
+    let mut in_list = false;
+    let mut ul = Vec::new();
+    let mut li = Vec::new();
+    let mut in_table = false;
+    let mut in_head = false;
+    let mut in_foot = false;
+    let mut table = SpellDescTable::default();
+    let mut tr = SpellDescTableRow::default();
+    let mut td = Vec::new();
+
+    fn push_nonempty(dst: &mut Vec<El>, el: El) -> bool {
+        let empty = match &el {
+            El::Text(str) | El::Bold(str) | El::Italic(str) => str.is_empty(),
+            El::LineBreak => false,
+            El::Glyph(_) => false,
+            El::List(items) => items.is_empty(),
+            El::Table(table) => {
+                table.head.is_none()
+                    && table.body.is_empty()
+                    && table.foot.is_none()
+            }
+        };
+        if !empty {
+            dst.push(el);
+            true
+        } else {
+            false
+        }
+    }
+
+    for event in xml::EventReader::new(desc) {
         if event.is_err() {
             continue;
         }
 
+        let dst = if in_table {
+            &mut td
+        } else if in_list {
+            &mut li
+        } else {
+            &mut els
+        };
+
         match event.unwrap() {
-            StartElement { name, .. }
+            StartElement {
+                name, attributes, ..
+            } => {
+                push_nonempty(dst, El::Text(std::mem::take(&mut text)));
+                attr_stack.push(attributes);
+
+                match name.local_name.as_str() {
+                    "ul" | "ol" => in_list = true,
+                    "table" => in_table = true,
+                    "thead" => in_head = true,
+                    "tfoot" => in_foot = true,
+                    _ => {}
+                }
+            }
+            EndElement { name } => {
+                let attributes = attr_stack.pop();
+                let text = std::mem::take(&mut text);
+                match name.local_name.as_str() {
+                    "p" => {
+                        if push_nonempty(dst, El::Text(text)) {
+                            dst.push(El::LineBreak);
+                        }
+                    }
+                    "strong" | "b" => {
+                        push_nonempty(dst, El::Bold(text));
+                    }
+                    "em" => {
+                        push_nonempty(dst, El::Italic(text));
+                    }
+                    "h1" | "h2" | "h3" | "h4" | "h5" => {
+                        dst.push(El::LineBreak);
+                        if push_nonempty(dst, El::Bold(text)) {
+                            dst.push(El::LineBreak);
+                        }
+                    }
+                    "li" => ul.push(std::mem::take(&mut li)),
+                    "ul" | "ol" => {
+                        els.push(El::List(std::mem::take(&mut ul)));
+                        in_list = false;
+                    }
+                    "span" => {
+                        let name = attributes
+                            .and_then(|a| {
+                                a.iter()
+                                    .find(|a| a.name.local_name == "class")
+                                    .cloned()
+                            })
+                            .map(|a| a.value)
+                            .unwrap_or(String::new());
+                        dst.push(El::Glyph(Glyph::parse(&name)));
+                    }
+                    "hr" | "br" => dst.push(El::LineBreak),
+                    "table" => {
+                        els.push(El::Table(std::mem::take(&mut table)));
+                        in_table = false;
+                    }
+                    "thead" | "tfoot" | "tbody" => {
+                        in_head = false;
+                        in_foot = false;
+                    }
+                    "tr" => {
+                        if in_head {
+                            table.head = Some(std::mem::take(&mut tr));
+                        } else if in_foot {
+                            table.foot = Some(std::mem::take(&mut tr));
+                        } else {
+                            table.body.push(std::mem::take(&mut tr));
+                        }
+                    }
+                    "td" | "th" => {
+                        // N.B. treating <th> as equivalent to <td> for now.
+                        tr.cells.push(std::mem::take(&mut td));
+                    }
+                    other => {
+                        dbg!(other);
+                    }
+                }
+            }
+            Characters(cs) => text.push_str(&cs),
+            Whitespace(cs) => text.push_str(&cs),
+            EndDocument => {
+                if !text.is_empty() {
+                    els.push(El::Text(std::mem::take(&mut text)));
+                }
+            }
+            _ => {}
         }
     }
     SpellDescription(els)
 }
 
 fn entry_to_spell(entry: SpellsDataEntry) -> Spell {
+    if entry.name == "Avatar" {
+        dbg!(parse_xml_description(entry.description.as_bytes()));
+    }
+
     Spell {
         name: entry.name,
         rarity: Rarity::parse(&entry.rarity),
@@ -137,7 +290,7 @@ fn entry_to_spell(entry: SpellsDataEntry) -> Spell {
         duration: entry.duration,
         sustained: entry.sustained,
 
-        description: parse_xml_description(entry.description),
+        description: parse_xml_description(entry.description.as_bytes()),
 
         publication: entry.publication,
     }
@@ -155,6 +308,6 @@ fn test() {
     const PATH: &str = "/home/owen/src/owen/spells_data/pf2e/spells.json";
 
     let reader = std::fs::File::open(PATH).unwrap();
-    dbg!(load_spell_data(reader).unwrap());
+    load_spell_data(reader).unwrap();
     panic!();
 }
