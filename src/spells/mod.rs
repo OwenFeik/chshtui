@@ -39,19 +39,19 @@ impl Glyph {
     }
 }
 
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 struct SpellDescTableRow {
     cells: Vec<Vec<SpellDescEl>>,
 }
 
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 struct SpellDescTable {
     head: Option<SpellDescTableRow>,
     body: Vec<SpellDescTableRow>,
     foot: Option<SpellDescTableRow>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 enum SpellDescEl {
     Text(String),
     LineBreak,
@@ -62,10 +62,10 @@ enum SpellDescEl {
     Table(SpellDescTable),
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct SpellDescription(Vec<SpellDescEl>);
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Spell {
     name: String,
     rarity: Rarity,
@@ -99,7 +99,7 @@ impl SpellBook {
     }
 
     pub fn status(&self) -> String {
-        if let Ok(lock) = self.0.read() {
+        if let Ok(lock) = self.0.try_read() {
             lock.status.clone()
         } else {
             "Poisoned!".to_string()
@@ -107,7 +107,7 @@ impl SpellBook {
     }
 
     fn set_status(&self, status: impl ToString) {
-        if let Ok(mut lock) = self.0.write() {
+        if let Ok(mut lock) = self.0.try_write() {
             lock.status = status.to_string();
         }
     }
@@ -309,38 +309,38 @@ fn parse_spells_data_spells(
     Ok(spells)
 }
 
-fn download_spell_data(spellbook: SpellBook) -> Result<(), String> {
+fn download_spell_data() -> Result<Vec<Spell>, String> {
     const URL: &str = "https://raw.githubusercontent.com/OwenFeik/spells_data/refs/heads/master/pf2e/spells.json";
 
-    spellbook.set_status("Communing...");
     let response = reqwest::blocking::get(URL)
         .map_err(|e| format!("Failed to download spells.json: {e}"))?;
-    spellbook.set_status("Interpreting...");
-    let spells = parse_spells_data_spells(response)?;
-    merge_into_spellbook(spellbook, spells)
+    parse_spells_data_spells(response)
 }
 
 fn merge_into_spellbook(
     spellbook: SpellBook,
-    new: Vec<Spell>,
+    mut spells: Vec<Spell>,
 ) -> Result<(), String> {
-    let old = &mut spellbook.0.write().map_err(|e| e.to_string())?.spells;
-    for spell in new {
-        old.retain(|s| s.name != spell.name);
-        old.push(spell);
+    let names: std::collections::HashSet<&str> =
+        spells.iter().map(|s| s.name.as_str()).collect();
+    let mut old_spells_not_in_new_spells = Vec::new();
+    for spell in &spellbook.0.read().map_err(|e| e.to_string())?.spells {
+        if !names.contains(spell.name.as_str()) {
+            old_spells_not_in_new_spells.push(spell.clone());
+        }
     }
+    for spell in old_spells_not_in_new_spells {
+        spells.push(spell);
+    }
+
+    spellbook.0.write().map_err(|e| e.to_string())?.spells = spells;
     Ok(())
 }
 
 const CACHE_FILE: &str = "spellbook.json";
-fn load_spells_from_cache(spellbook: SpellBook) -> Result<(), String> {
-    spellbook.set_status("Reading tome...");
+fn load_spells_from_cache() -> Result<Vec<Spell>, String> {
     let reader = fs::read_data(CACHE_FILE).map_err(|e| e.to_string())?;
-    spellbook.set_status("Parsing tome...");
-    let spells =
-        serde_json::de::from_reader(reader).map_err(|e| e.to_string())?;
-    spellbook.set_status("Consulting tome...");
-    merge_into_spellbook(spellbook, spells)
+    serde_json::de::from_reader(reader).map_err(|e| e.to_string())
 }
 
 fn save_spells_to_cache(spellbook: SpellBook) {
@@ -357,27 +357,35 @@ fn save_spells_to_cache(spellbook: SpellBook) {
 /// saving to cache file for use in future.
 fn populate_spellbook_in_background(spellbook: SpellBook) {
     std::thread::spawn(|| {
-        if let Err(e) = load_spells_from_cache(spellbook.clone()) {
-            spellbook.set_status(format!("Tome failed: {e}"));
-            if let Err(e) = download_spell_data(spellbook.clone()) {
-                spellbook.set_status(format!("Commune failed: {e}"));
-                return;
+        spellbook.set_status("Reading tome...");
+        let result = match load_spells_from_cache() {
+            Err(_) => {
+                spellbook.set_status("Communing...");
+                download_spell_data()
             }
+            Ok(spells) => Ok(spells),
         };
 
-        let status = if let Ok(inner) = spellbook.0.read() {
-            format!("{} spells.", inner.spells.len())
-        } else {
-            "Retrieved.".to_string()
-        };
-        spellbook.set_status(status);
-        save_spells_to_cache(spellbook);
+        match result {
+            Ok(spells) => {
+                merge_into_spellbook(spellbook.clone(), spells).ok();
+                let status = if let Ok(inner) = spellbook.0.read() {
+                    format!("{} spells.", inner.spells.len())
+                } else {
+                    "Retrieved.".to_string()
+                };
+                spellbook.set_status(status);
+                save_spells_to_cache(spellbook);
+            }
+            Err(e) => {
+                spellbook.set_status(format!("Error: {e}"));
+            }
+        }
     });
 }
 
 #[test]
 fn test() {
-    let spellbook = Default::default();
-    download_spell_data(spellbook).unwrap();
+    download_spell_data().unwrap();
     panic!();
 }
