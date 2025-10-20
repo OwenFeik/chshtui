@@ -1,3 +1,5 @@
+use std::sync::{Arc, RwLock};
+
 use crate::fs;
 
 mod widget;
@@ -16,7 +18,8 @@ impl Rarity {
             "unique" => Self::Unique,
             "rare" => Self::Rare,
             "uncommon" => Self::Uncommon,
-            "common" | _ => Self::Common,
+            "common" => Self::Common,
+            _ => Self::Common,
         }
     }
 }
@@ -82,34 +85,41 @@ pub struct Spell {
     publication: String,
 }
 
-pub type SharedSpellBook = std::sync::Arc<std::sync::RwLock<SpellBook>>;
-pub struct SpellBook(Vec<Spell>);
+struct SpellBookInner {
+    spells: Vec<Spell>,
+    status: String,
+}
+
+#[derive(Clone)]
+pub struct SpellBook(std::sync::Arc<std::sync::RwLock<SpellBookInner>>);
 
 impl SpellBook {
-    const FILE: &str = "spellbook.json";
+    pub fn load_spells(&self) {
+        populate_spellbook_in_background(self.clone());
+    }
 
-    pub fn load() -> Self {
-        if let Ok(reader) = fs::read_data(Self::FILE) {
-            if let Ok(spells) = serde_json::de::from_reader(reader) {
-                return Self(spells);
-            }
+    pub fn status(&self) -> String {
+        if let Ok(lock) = self.0.read() {
+            lock.status.clone()
+        } else {
+            "Poisoned!".to_string()
         }
-
-        Self(Vec::new())
     }
 
-    fn add(&mut self, spell: Spell) {
-        self.0.retain(|s| s.name != spell.name);
-        self.0.push(spell);
-        self.0.sort_by(|a, b| {
-            a.rank.cmp(&b.rank).then_with(|| a.name.cmp(&b.name))
-        });
+    fn set_status(&self, status: impl ToString) {
+        if let Ok(mut lock) = self.0.write() {
+            lock.status = status.to_string();
+        }
     }
+}
 
-    fn save(&self) -> Result<(), String> {
-        let data =
-            serde_json::ser::to_vec(&self.0).map_err(|e| e.to_string())?;
-        fs::write_data(Self::FILE, data).map_err(|e| e.to_string())
+impl Default for SpellBook {
+    fn default() -> Self {
+        let inner = SpellBookInner {
+            spells: Vec::new(),
+            status: "Loading...".to_string(),
+        };
+        Self(Arc::new(RwLock::new(inner)))
     }
 }
 
@@ -253,9 +263,7 @@ fn parse_xml_description(desc: impl std::io::Read) -> SpellDescription {
                         // N.B. treating <th> as equivalent to <td> for now.
                         tr.cells.push(std::mem::take(&mut td));
                     }
-                    other => {
-                        dbg!(other);
-                    }
+                    other => todo!("{}", other),
                 }
             }
             Characters(cs) => text.push_str(&cs),
@@ -272,10 +280,6 @@ fn parse_xml_description(desc: impl std::io::Read) -> SpellDescription {
 }
 
 fn entry_to_spell(entry: SpellsDataEntry) -> Spell {
-    if entry.name == "Avatar" {
-        dbg!(parse_xml_description(entry.description.as_bytes()));
-    }
-
     Spell {
         name: entry.name,
         rarity: Rarity::parse(&entry.rarity),
@@ -296,18 +300,84 @@ fn entry_to_spell(entry: SpellsDataEntry) -> Spell {
     }
 }
 
-fn load_spell_data(json: impl std::io::Read) -> Result<Vec<Spell>, String> {
+fn parse_spells_data_spells(
+    json: impl std::io::Read,
+) -> Result<Vec<Spell>, String> {
     let entries: Vec<SpellsDataEntry> =
         serde_json::de::from_reader(json).map_err(|e| e.to_string())?;
     let spells = entries.into_iter().map(entry_to_spell).collect();
     Ok(spells)
 }
 
+fn download_spell_data(spellbook: SpellBook) -> Result<(), String> {
+    const URL: &str = "https://raw.githubusercontent.com/OwenFeik/spells_data/refs/heads/master/pf2e/spells.json";
+
+    spellbook.set_status("Communing...");
+    let response = reqwest::blocking::get(URL)
+        .map_err(|e| format!("Failed to download spells.json: {e}"))?;
+    spellbook.set_status("Interpreting...");
+    let spells = parse_spells_data_spells(response)?;
+    merge_into_spellbook(spellbook, spells)
+}
+
+fn merge_into_spellbook(
+    spellbook: SpellBook,
+    new: Vec<Spell>,
+) -> Result<(), String> {
+    let old = &mut spellbook.0.write().map_err(|e| e.to_string())?.spells;
+    for spell in new {
+        old.retain(|s| s.name != spell.name);
+        old.push(spell);
+    }
+    Ok(())
+}
+
+const CACHE_FILE: &str = "spellbook.json";
+fn load_spells_from_cache(spellbook: SpellBook) -> Result<(), String> {
+    spellbook.set_status("Reading tome...");
+    let reader = fs::read_data(CACHE_FILE).map_err(|e| e.to_string())?;
+    spellbook.set_status("Parsing tome...");
+    let spells =
+        serde_json::de::from_reader(reader).map_err(|e| e.to_string())?;
+    spellbook.set_status("Consulting tome...");
+    merge_into_spellbook(spellbook, spells)
+}
+
+fn save_spells_to_cache(spellbook: SpellBook) {
+    if let Ok(sb) = spellbook.0.read() {
+        spellbook.set_status("Recording findings...");
+        if let Ok(data) = serde_json::ser::to_vec(&sb.spells) {
+            fs::write_data(CACHE_FILE, data).ok();
+        }
+    }
+}
+
+/// Load spells into spellbook in background thread, either by loading them
+/// from the cache file or by downloading them from github, parsing and then
+/// saving to cache file for use in future.
+fn populate_spellbook_in_background(spellbook: SpellBook) {
+    std::thread::spawn(|| {
+        if let Err(e) = load_spells_from_cache(spellbook.clone()) {
+            spellbook.set_status(format!("Tome failed: {e}"));
+            if let Err(e) = download_spell_data(spellbook.clone()) {
+                spellbook.set_status(format!("Commune failed: {e}"));
+                return;
+            }
+        };
+
+        let status = if let Ok(inner) = spellbook.0.read() {
+            format!("{} spells.", inner.spells.len())
+        } else {
+            "Retrieved.".to_string()
+        };
+        spellbook.set_status(status);
+        save_spells_to_cache(spellbook);
+    });
+}
+
 #[test]
 fn test() {
-    const PATH: &str = "/home/owen/src/owen/spells_data/pf2e/spells.json";
-
-    let reader = std::fs::File::open(PATH).unwrap();
-    load_spell_data(reader).unwrap();
+    let spellbook = Default::default();
+    download_spell_data(spellbook).unwrap();
     panic!();
 }

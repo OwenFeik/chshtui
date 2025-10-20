@@ -524,3 +524,28 @@ impl ElGroup<State> for RollHistory {
         }
     }
 }
+
+pub struct SpellBookStatus;
+
+impl ElSimp<SheetState> for SpellBookStatus {
+    fn dimensions(&self) -> Dims {
+        Dims::new(Constraint::Min(16), Constraint::Length(3))
+    }
+
+    fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        state: &SheetState,
+        selected: bool,
+    ) {
+        frame.render_widget(
+            style_selected(
+                Paragraph::new(state.spellbook.status())
+                    .block(Block::bordered().title("Spellbook")),
+                selected,
+            ),
+            area,
+        );
+    }
+}

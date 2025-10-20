@@ -30,6 +30,7 @@ impl SheetScene {
                 ))
             },
         ));
+        layout.add_el(els::SpellBookStatus);
         layout.add_group(els::Dice);
         layout.add_group(els::RollHistory::new(10));
         Self { layout }

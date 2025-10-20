@@ -25,6 +25,9 @@ struct SheetState {
     skills: stats::Skills,
 
     #[serde(skip)]
+    spellbook: spells::SpellBook,
+
+    #[serde(skip)]
     rolls: Vec<roll::RollOutcome>,
 }
 
@@ -66,6 +69,7 @@ impl App {
         &mut self,
         term: &mut ratatui::DefaultTerminal,
     ) -> std::io::Result<()> {
+        self.state.spellbook.load_spells();
         while !self.scene_stack.is_empty() {
             term.draw(|frame| self.draw(frame))?;
             self.handle_events()?;
