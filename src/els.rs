@@ -9,6 +9,7 @@ use ratatui::{
 use crate::{
     Handler, SheetState, editors, els,
     roll::{self, Roll},
+    scenes,
     stats::{self, Stat},
     view::{self, Dims, ElGroup, ElSimp, centre_of},
 };
@@ -525,9 +526,9 @@ impl ElGroup<State> for RollHistory {
     }
 }
 
-pub struct SpellBookStatus;
+pub struct SpellbookStatus;
 
-impl ElSimp<SheetState> for SpellBookStatus {
+impl ElSimp<SheetState> for SpellbookStatus {
     fn dimensions(&self) -> Dims {
         Dims::new(Constraint::Min(16), Constraint::Length(3))
     }
@@ -547,5 +548,12 @@ impl ElSimp<SheetState> for SpellBookStatus {
             ),
             area,
         );
+    }
+
+    fn handle_select(
+        &self,
+        state: &SheetState,
+    ) -> view::HandleResult<SheetState> {
+        view::HandleResult::Open(Box::new(scenes::SpellbookScene::new(state)))
     }
 }

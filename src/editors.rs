@@ -3,14 +3,14 @@ use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEventKind},
     layout::{Constraint, Rect},
     text::ToLine,
-    widgets::{Row, Table},
+    widgets::{Block, Row, Table},
 };
 use tui_input::backend::crossterm::EventHandler;
 
 use crate::{
-    Handler,
-    els::{self, BORDER, State},
-    roll, stats,
+    Handler, SheetState,
+    els::{self, BORDER, State, style_selected},
+    roll, spells, stats,
     view::{self, Dims, ElSimp, Scene},
 };
 
@@ -41,7 +41,7 @@ impl<T> Scene<T> for MessageBox<T> {
 }
 
 #[derive(Clone)]
-struct EditorState<T: Clone + Default> {
+pub struct EditorState<T: Clone + Default> {
     shared_state: std::rc::Rc<std::cell::Cell<T>>,
 }
 
@@ -530,5 +530,83 @@ impl Scene<State> for RollEditorModal {
             KeyCode::Esc => Handler::Close,
             _ => Handler::Default,
         }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct SpellbookTablePos {
+    pub window_start: usize,
+    pub offset: usize,
+}
+
+pub struct SpellbookTable {
+    spells: spells::SpellBookQuery,
+    view: EditorState<SpellbookTablePos>,
+}
+
+impl SpellbookTable {
+    pub fn new(
+        spells: spells::SpellBookQuery,
+    ) -> (Self, EditorState<SpellbookTablePos>) {
+        let state = EditorState::new(SpellbookTablePos::default());
+        (
+            SpellbookTable {
+                spells,
+                view: state.clone(),
+            },
+            state,
+        )
+    }
+}
+
+impl view::ElGroup<SheetState> for SpellbookTable {
+    fn dimensions(&self, _state: &SheetState) -> Dims {
+        Dims::new(Constraint::Fill(1), Constraint::Fill(1))
+    }
+
+    fn direction(&self) -> ratatui::prelude::Direction {
+        ratatui::prelude::Direction::Vertical
+    }
+
+    fn child_count(&self, _state: &SheetState) -> usize {
+        self.spells.len()
+    }
+
+    fn child_pos(
+        &self,
+        _area: Rect,
+        _state: &SheetState,
+        _selected: usize,
+    ) -> (u16, u16) {
+        (0, 0)
+    }
+
+    fn child_at_pos(
+        &self,
+        _area: Rect,
+        _state: &SheetState,
+        _x: u16,
+        _y: u16,
+    ) -> usize {
+        0
+    }
+
+    fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        _state: &SheetState,
+        _selected: Option<usize>,
+    ) {
+        let selected = self.view.get().offset;
+        let rows = self.spells.iter().enumerate().map(|(i, s)| {
+            let row = Row::new(vec![s.name.clone(), s.rank.to_string()]);
+            style_selected(row, i == selected)
+        });
+        let table = Table::default()
+            .header(Row::new(vec!["Spell", "Rank"]))
+            .rows(rows)
+            .block(Block::bordered());
+        frame.render_widget(table, area);
     }
 }

@@ -778,7 +778,10 @@ impl<S> Layout<S> {
         selected: ElPos,
     ) -> Rect {
         let (area, selection) = match &self.mode {
-            LayoutRenderMode::FullScreen => (frame.area(), true),
+            LayoutRenderMode::FullScreen => {
+                frame.render_widget(Clear, frame.area());
+                (frame.area(), true)
+            }
             LayoutRenderMode::Modal {
                 title,
                 dimensions,

@@ -67,9 +67,9 @@ struct SpellDescription(Vec<SpellDescEl>);
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Spell {
-    name: String,
+    pub name: String,
     rarity: Rarity,
-    rank: i8,
+    pub rank: i8,
 
     traditions: Vec<String>,
     traits: Vec<String>,
@@ -85,15 +85,38 @@ pub struct Spell {
     publication: String,
 }
 
+pub struct SpellBookQuery(Vec<Arc<Spell>>);
+
+impl SpellBookQuery {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<Spell>> {
+        self.0.iter()
+    }
+}
+
 struct SpellBookInner {
-    spells: Vec<Spell>,
+    spells: Vec<Arc<Spell>>,
     status: String,
 }
 
 #[derive(Clone)]
-pub struct SpellBook(std::sync::Arc<std::sync::RwLock<SpellBookInner>>);
+pub struct SpellBook(Arc<RwLock<SpellBookInner>>);
 
 impl SpellBook {
+    pub fn query_all(&self) -> SpellBookQuery {
+        match self.0.read() {
+            Ok(inner) => SpellBookQuery(inner.spells.clone()),
+            Err(_) => SpellBookQuery(Vec::new()),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.read().map(|sb| sb.spells.len()).unwrap_or(0)
+    }
+
     pub fn load_spells(&self) {
         populate_spellbook_in_background(self.clone());
     }
@@ -319,7 +342,7 @@ fn download_spell_data() -> Result<Vec<Spell>, String> {
 
 fn merge_into_spellbook(
     spellbook: SpellBook,
-    mut spells: Vec<Spell>,
+    mut spells: Vec<Arc<Spell>>,
 ) -> Result<(), String> {
     let names: std::collections::HashSet<&str> =
         spells.iter().map(|s| s.name.as_str()).collect();
@@ -333,6 +356,7 @@ fn merge_into_spellbook(
         spells.push(spell);
     }
 
+    spells.sort_by(|a, b| a.name.cmp(&b.name));
     spellbook.0.write().map_err(|e| e.to_string())?.spells = spells;
     Ok(())
 }
@@ -368,6 +392,7 @@ fn populate_spellbook_in_background(spellbook: SpellBook) {
 
         match result {
             Ok(spells) => {
+                let spells = spells.into_iter().map(Arc::new).collect();
                 merge_into_spellbook(spellbook.clone(), spells).ok();
                 let status = if let Ok(inner) = spellbook.0.read() {
                     format!("{} spells.", inner.spells.len())

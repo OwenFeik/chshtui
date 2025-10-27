@@ -1,4 +1,10 @@
-use crate::{SheetState, editors, els, stats, view};
+use ratatui::layout::Constraint;
+
+use crate::{
+    SheetState, editors,
+    els::{self, BORDER},
+    spells, stats, view,
+};
 
 pub struct SheetScene {
     layout: view::Layout<SheetState>,
@@ -30,7 +36,7 @@ impl SheetScene {
                 ))
             },
         ));
-        layout.add_el(els::SpellBookStatus);
+        layout.add_el(els::SpellbookStatus);
         layout.add_group(els::Dice);
         layout.add_group(els::RollHistory::new(10));
         Self { layout }
@@ -38,6 +44,27 @@ impl SheetScene {
 }
 
 impl view::Scene<SheetState> for SheetScene {
+    fn layout(&self) -> &view::Layout<SheetState> {
+        &self.layout
+    }
+}
+
+pub struct SpellbookScene {
+    view: editors::EditorState<editors::SpellbookTablePos>,
+    layout: view::Layout<SheetState>,
+}
+
+impl SpellbookScene {
+    pub fn new(state: &SheetState) -> Self {
+        let (el, view) =
+            editors::SpellbookTable::new(state.spellbook.query_all());
+        let mut layout = view::Layout::new();
+        layout.add_group(el);
+        Self { view, layout }
+    }
+}
+
+impl view::Scene<SheetState> for SpellbookScene {
     fn layout(&self) -> &view::Layout<SheetState> {
         &self.layout
     }
