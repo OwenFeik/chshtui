@@ -40,7 +40,7 @@ impl<T> Scene<T> for MessageBox<T> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct EditorState<T: Clone + Default> {
     shared_state: std::rc::Rc<std::cell::Cell<T>>,
 }
@@ -62,7 +62,7 @@ impl<T: Clone + Default> EditorState<T> {
         self.shared_state.set(value);
     }
 
-    fn update(&self, effect: impl FnOnce(T) -> T) {
+    pub fn update(&self, effect: impl FnOnce(T) -> T) {
         let value = self.shared_state.take();
         self.shared_state.set(effect(value));
     }
@@ -112,11 +112,20 @@ impl<T: std::fmt::Display + Default + Clone> ElSimp<State> for CellDisplay<T> {
 
 type EditorSubmitHandler<T> = Box<dyn FnMut(T, &mut State)>;
 
-struct StringEditor {
+#[derive(Default)]
+pub struct StringDisplay {
     value: EditorState<String>,
 }
 
-impl ElSimp<State> for StringEditor {
+impl StringDisplay {
+    pub fn new() -> (Self, EditorState<String>) {
+        let editor = Self::default();
+        let state = editor.value.clone();
+        (editor, state)
+    }
+}
+
+impl ElSimp<State> for StringDisplay {
     fn dimensions(&self) -> Dims {
         Dims::new(Constraint::Min(16), Constraint::Length(3))
     }
@@ -132,11 +141,41 @@ impl ElSimp<State> for StringEditor {
     }
 }
 
+pub struct StringEditor {
+    display: StringDisplay,
+    input: tui_input::Input,
+}
+
+impl StringEditor {
+    pub fn new() -> (Self, EditorState<String>) {
+        let (display, state) = StringDisplay::new();
+        let editor = Self {
+            display,
+            input: tui_input::Input::new(String::new()),
+        };
+        (editor, state)
+    }
+}
+
+impl ElSimp<SheetState> for StringEditor {
+    fn dimensions(&self) -> Dims {
+        todo!()
+    }
+
+    fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        state: &SheetState,
+        selected: bool,
+    ) {
+        todo!()
+    }
+}
+
 pub struct StringEditorModal {
     layout: view::Layout<State>,
     apply_to_state: EditorSubmitHandler<String>,
-    value: EditorState<String>,
-    input: tui_input::Input,
 }
 
 impl StringEditorModal {
@@ -147,7 +186,7 @@ impl StringEditorModal {
     ) -> Self {
         let input = tui_input::Input::new(initial_value.clone());
         let value = EditorState::new(initial_value);
-        let el = StringEditor {
+        let el = StringDisplay {
             value: value.clone(),
         };
         let mut layout = view::Layout::new();
@@ -465,7 +504,7 @@ impl RollEditorModal {
     pub fn new() -> Self {
         let input = tui_input::Input::default();
         let value = EditorState::new(String::new());
-        let el = StringEditor {
+        let el = StringDisplay {
             value: value.clone(),
         };
         let mut layout = view::Layout::new();
@@ -539,6 +578,37 @@ pub struct SpellbookTablePos {
     pub offset: usize,
 }
 
+impl SpellbookTablePos {
+    pub fn up(self) -> Self {
+        if self.offset == 0 {
+            Self {
+                window_start: self.window_start.saturating_sub(1),
+                offset: 0,
+            }
+        } else {
+            Self {
+                window_start: self.window_start,
+                offset: self.offset.saturating_sub(1),
+            }
+        }
+    }
+
+    pub fn down(self, total_rows: usize, visible_rows: usize) -> Self {
+        if self.offset >= visible_rows.saturating_sub(1) {
+            Self {
+                window_start: (self.window_start + 1)
+                    .min(total_rows.saturating_sub(1)),
+                offset: visible_rows.saturating_sub(1),
+            }
+        } else {
+            Self {
+                window_start: self.window_start,
+                offset: self.offset + 1,
+            }
+        }
+    }
+}
+
 pub struct SpellbookTable {
     spells: spells::SpellBookQuery,
     view: EditorState<SpellbookTablePos>,
@@ -598,15 +668,41 @@ impl view::ElGroup<SheetState> for SpellbookTable {
         _state: &SheetState,
         _selected: Option<usize>,
     ) {
-        let selected = self.view.get().offset;
-        let rows = self.spells.iter().enumerate().map(|(i, s)| {
-            let row = Row::new(vec![s.name.clone(), s.rank.to_string()]);
-            style_selected(row, i == selected)
-        });
+        let view = self.view.get();
+        let selected = view.offset;
+        let rows = self.spells.iter().skip(view.window_start).enumerate().map(
+            |(i, s)| {
+                let row = Row::new(vec![s.name.clone(), s.rank.to_string()]);
+                style_selected(row, i == selected)
+            },
+        );
         let table = Table::default()
             .header(Row::new(vec!["Spell", "Rank"]))
             .rows(rows)
             .block(Block::bordered());
         frame.render_widget(table, area);
+    }
+
+    fn handle_key_press(
+        &self,
+        code: KeyCode,
+        state: &mut SheetState,
+        _selected: usize,
+    ) -> view::HandleResult<SheetState> {
+        match view::Navigation::from_key_code(code) {
+            Some(view::Navigation::Up) => {
+                self.view.update(|pos| pos.up());
+                Handler::Consume
+            }
+            Some(view::Navigation::Down) => {
+                let total_rows = state.spellbook.len();
+                let visible_rows =
+                    state.window_dimensions.height.saturating_sub(BORDER + 1)
+                        as usize;
+                self.view.update(|pos| pos.down(total_rows, visible_rows));
+                Handler::Consume
+            }
+            _ => Handler::Default,
+        }
     }
 }

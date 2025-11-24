@@ -1,7 +1,7 @@
-use ratatui::layout::Constraint;
+use ratatui::{crossterm::event::KeyCode, layout::Constraint};
 
 use crate::{
-    SheetState, editors,
+    Handler, SheetState, editors,
     els::{self, BORDER},
     spells, stats, view,
 };
@@ -52,6 +52,7 @@ impl view::Scene<SheetState> for SheetScene {
 pub struct SpellbookScene {
     view: editors::EditorState<editors::SpellbookTablePos>,
     layout: view::Layout<SheetState>,
+    search_input: editors::EditorState<String>,
 }
 
 impl SpellbookScene {
@@ -60,7 +61,13 @@ impl SpellbookScene {
             editors::SpellbookTable::new(state.spellbook.query_all());
         let mut layout = view::Layout::new();
         layout.add_group(el);
-        Self { view, layout }
+        let (search_input, state) = editors::StringDisplay::new();
+        layout.add_el(search_input);
+        Self {
+            view,
+            layout,
+            search_input: state,
+        }
     }
 }
 

@@ -29,6 +29,9 @@ struct SheetState {
 
     #[serde(skip)]
     rolls: Vec<roll::RollOutcome>,
+
+    #[serde(skip)]
+    window_dimensions: ratatui::layout::Rect,
 }
 
 /// Handler for an input event.
@@ -84,6 +87,7 @@ impl App {
                     .layout()
                     .render(frame, &self.state, item.position);
         }
+        self.state.window_dimensions = frame.area();
     }
 
     fn handle_events(&mut self) -> std::io::Result<()> {
